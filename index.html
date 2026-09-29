@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#6750a4">
+    <title>AIプロンプトメーカー</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="script.js" defer></script>
+  </head>
+  <body>
+    <main class="app">
+      <header class="hero">
+        <span class="hero__icon" aria-hidden="true">✦</span>
+        <div>
+          <p class="eyebrow">IMAGE PROMPT TOOL</p>
+          <h1>AIプロンプトメーカー</h1>
+          <p class="lead">イメージを入力して、画像生成用のプロンプトを作りましょう。</p>
+        </div>
+      </header>
+
+      <form id="prompt-form" class="card">
+        <div class="field">
+          <label for="character">キャラクター名</label>
+          <input id="character" name="character" type="text" placeholder="例：魔法使いの少女">
+        </div>
+
+        <div class="field">
+          <label for="outfit">衣装</label>
+          <input id="outfit" name="outfit" type="text" placeholder="例：星柄の青いローブ">
+        </div>
+
+        <div class="field">
+          <label for="situation">シチュエーション</label>
+          <textarea id="situation" name="situation" rows="3" placeholder="例：夜の森で魔法を使っている"></textarea>
+        </div>
+
+        <div class="field">
+          <label for="composition">構図</label>
+          <input id="composition" name="composition" type="text" placeholder="例：全身、正面、ローアングル">
+        </div>
+
+        <button class="primary-button" type="submit">
+          <span aria-hidden="true">✦</span>
+          プロンプトを作る
+        </button>
+      </form>
+
+      <section class="result-card" aria-labelledby="result-heading">
+        <div class="result-heading">
+          <h2 id="result-heading">生成されたプロンプト</h2>
+          <span id="status" class="status" role="status" aria-live="polite"></span>
+        </div>
+        <p id="prompt-output" class="prompt-output">入力した内容がここに表示されます。</p>
+        <button id="copy-button" class="copy-button" type="button" disabled>
+          <span aria-hidden="true">▣</span>
+          コピーする
+        </button>
+      </section>
+
+      <p class="note">このツールは画像を生成しません。作ったプロンプトをお好みの画像生成サービスでお使いください。</p>
+    </main>
+  </body>
+</html>
