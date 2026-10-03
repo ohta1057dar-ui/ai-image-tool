@@ -1,14 +1,15 @@
 "use strict";
 
 // 項目の追加はこの定義から。キーは保存データとの互換性のため変更しません。
-const DATA_VERSION = 3; // UI V2.1の保存形式
-const STORAGE_KEY = "ai-prompt-maker-v2-1";
+const DATA_VERSION = 4; // UI V2.2の保存形式
+const STORAGE_KEY = "ai-prompt-maker-v2-2";
+const PREVIOUS_KEY = "ai-prompt-maker-v2-1";
 const LEGACY_KEY = "ai-prompt-maker-v2";
 const RATIOS = ["9:16", "4:5", "1:1", "3:4", "16:9"];
 const STYLES = ["実写・フォトリアル", "スマートフォン写真風", "イラスト", "アニメ"];
 const SCHEMA = {
   character: { label: "人物", name: "characterName", basic: ["characterName", "age", "description"], fields: {
-    characterName: "管理用キャラクター名", age: "年齢／年代", description: "人物説明", face: "顔立ち", hairStyle: "髪型", hairColor: "髪色", eyes: "目", skin: "肌・肌質", makeup: "メイク", bodyType: "体型", height: "身長", physicalFeatures: "身体的特徴", features: "その他の特徴", fixedFeatures: "固定したい特徴", maintainedFeatures: "生成時に維持したい特徴", characterNotes: "補足", expression: "V2から引き継いだ表情" } },
+    characterName: "管理用キャラクター名", age: "年齢／年代", description: "人物説明", face: "顔立ち", hair: "髪", eyes: "目", skinMakeup: "肌・メイク", physique: "体型・身長", physicalFeatures: "身体的特徴", requiredFeatures: "必ず維持する特徴", characterNotes: "補足" } },
   outfit: { label: "衣装", name: "outfitName", basic: ["outfitName", "outfit"], fields: {
     outfitName: "管理用衣装名", outfit: "衣装説明", outfitType: "種類", outfitColor: "色", outfitMaterial: "素材", outfitDesign: "デザイン", shoes: "靴", accessories: "アクセサリー", outfitOther: "その他" } },
   situation: { label: "シーン", name: "sceneName", basic: ["sceneName", "situation"], fields: {
@@ -20,8 +21,27 @@ const SCHEMA = {
   finish: { label: "仕上がり", name: "finishName", basic: ["finishName", "ratio", "style"], fields: {
     finishName: "管理用プリセット名", ratio: "画像比率", style: "表現形式", finishCamera: "撮影機材感", finishLight: "光", tone: "色調", depth: "被写界深度", texture: "画質・質感", finishOther: "その他" } }
 };
-const FIELD_KEYS = [...Object.values(SCHEMA).flatMap(s => Object.keys(s.fields)), "negative"];
+const FIELD_KEYS = [...Object.values(SCHEMA).flatMap(s => Object.keys(s.fields)), "negative", "expression"];
 const DEFAULT_DRAFT = Object.fromEntries(FIELD_KEYS.map(k => [k, k === "ratio" ? "9:16" : k === "style" ? STYLES[0] : ""]));
+const PLACEHOLDERS = {
+  characterName: "例：いつもの人物A（管理用）", age: "例：20代の成人", description: "例：落ち着いた雰囲気の成人女性",
+  face: "例：卵型の顔、自然な左右差、柔らかい目元", hair: "例：ベージュアッシュのロングヘア、ゆるいウェーブ",
+  eyes: "例：アーモンド形の目、ダークブラウン", skinMakeup: "例：自然な毛穴感とツヤ、ナチュラルメイク",
+  physique: "例：165cm、自然で健康的な体型", physicalFeatures: "例：左頬の小さなほくろ（必要な場合のみ）",
+  requiredFeatures: "例：顔立ち・髪・年齢感を維持。顔を過度に左右対称にしない", characterNotes: "例：丸い眼鏡を使用。装飾は控えめ",
+  outfitName: "例：黒のナイトドレス", outfit: "例：シンプルな黒いロングドレス", outfitType: "例：ナイトドレス", outfitColor: "例：黒",
+  outfitMaterial: "例：シルク", outfitDesign: "例：装飾の少ないデザイン", shoes: "例：黒のパンプス", accessories: "例：小さなイヤリング", outfitOther: "例：自然な生地のしわ",
+  sceneName: "例：ホテルパーティ", situation: "例：友人と夜のパーティを楽しんでいる", location: "例：ホテルのラウンジ", timeOfDay: "例：夜",
+  sceneActivity: "例：友人と会話する", people: "例：背景に他の参加者", sceneLight: "例：暖色の間接照明", atmosphere: "例：落ち着いて華やか",
+  props: "例：テーブルのグラス", background: "例：ホテルのロビー", sceneOther: "例：背景は自然な生活感",
+  actionName: "例：自然な笑顔", actionExpression: "例：穏やかな笑顔", gaze: "例：カメラを見る", mouth: "例：軽く口角を上げる", movement: "例：ゆっくり歩く",
+  hands: "例：片手でバッグを持つ", interaction: "例：友人と話している", actionOther: "例：動きを作り込みすぎない",
+  compositionName: "例：全身・友人撮影", composition: "例：全身を中央に配置", framing: "例：全身", cameraDirection: "例：正面より少し斜め", cameraHeight: "例：目線程度",
+  distance: "例：2〜3m", angle: "例：自然な正面", pose: "例：自然に立つ", cameraGaze: "例：撮影者を見る", photographer: "例：友人", cameraFeel: "例：スマートフォン写真",
+  lens: "例：標準レンズ", bokeh: "例：弱い背景ボケ", compositionOther: "例：頭上と足元に少し余白",
+  finishName: "例：スマホ実写", finishCamera: "例：スマートフォン撮影風", finishLight: "例：自然な光", tone: "例：自然な色調", depth: "例：適度な被写界深度",
+  texture: "例：過度な美肌加工を避ける", finishOther: "例：自然な粒子感を残す"
+};
 const $ = selector => document.querySelector(selector);
 const form = $("#prompt-form");
 const warning = $("#storage-warning");
@@ -52,6 +72,20 @@ function showStatus(message, duration = 3000) {
 function showWarning(message) { warning.textContent = message; warning.hidden = false; }
 function newId() { return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 function isObject(value) { return value && typeof value === "object" && !Array.isArray(value); }
+// expressionは旧人物設定の回収用。人物UIに表示せず表情・動作へ引き継ぎます。
+function mergeDetails(...parts) { return parts.filter(part => part && part.trim()).map(part => part.trim()).join("\n"); }
+function migrateDraft(value, version) {
+  if (!isObject(value)) throw new Error("入力データが不正です");
+  if (version === DATA_VERSION) return cleanDraft(value);
+  const migrated = { ...value };
+  const groups = { hair: ["hairStyle", "hairColor"], skinMakeup: ["skin", "makeup"], physique: ["bodyType", "height"], requiredFeatures: ["fixedFeatures", "maintainedFeatures"], characterNotes: ["features", "characterNotes"] };
+  for (const [target, keys] of Object.entries(groups)) {
+    for (const key of keys) if (value[key] !== undefined && typeof value[key] !== "string") throw new Error("旧人物項目の型が不正です");
+    migrated[target] = mergeDetails(...keys.map(key => value[key] || ""));
+  }
+  if (!migrated.actionExpression && migrated.expression) migrated.actionExpression = migrated.expression;
+  return cleanDraft(migrated);
+}
 function cleanDraft(value) {
   if (!isObject(value)) throw new Error("入力データが不正です");
   const result = { ...DEFAULT_DRAFT };
@@ -65,25 +99,26 @@ function cleanDraft(value) {
   return result;
 }
 function categoryData(category, draft) {
-  return Object.fromEntries(Object.keys(SCHEMA[category].fields).map(key => [key, draft[key]]));
+  const keys = [...Object.keys(SCHEMA[category].fields), ...(category === "character" ? ["expression"] : [])];
+  return Object.fromEntries(keys.map(key => [key, draft[key]]));
 }
 function emptyState() {
   return { version: DATA_VERSION, draft: { ...DEFAULT_DRAFT }, presets: Object.fromEntries(Object.keys(SCHEMA).map(k => [k, []])), history: [], recent: {} };
 }
-// V2のキーは残したまま、V2.1用キーに移行。履歴の完成文章・IDは変更しません。
+// V2/V2.1のキーは残し、初回だけV2.2へ移行。完成文章・IDも保持します。
 function normalizeState(saved) {
-  if (!isObject(saved) || ![2, DATA_VERSION].includes(saved.version) || !isObject(saved.presets) || !Array.isArray(saved.history)) throw new Error("未対応の保存形式です");
+  if (!isObject(saved) || ![2, 3, DATA_VERSION].includes(saved.version) || !isObject(saved.presets) || !Array.isArray(saved.history)) throw new Error("未対応の保存形式です");
   const result = emptyState();
-  result.draft = cleanDraft(saved.draft);
+  result.draft = migrateDraft(saved.draft, saved.version);
   const allIds = new Set();
   for (const category of Object.keys(SCHEMA)) {
     const entries = saved.presets[category] ?? (saved.version === 2 && ["action", "finish"].includes(category) ? [] : null);
     if (!Array.isArray(entries)) throw new Error("保存設定が不正です");
     result.presets[category] = entries.map(item => {
       if (!isObject(item) || typeof item.id !== "string" || !item.id || typeof item.name !== "string" || !item.name.trim() || !validDate(item.createdAt) || allIds.has(item.id)) throw new Error("保存設定が不正です");
-      if (saved.version === DATA_VERSION && (item.type !== category || item.version !== DATA_VERSION || !validDate(item.updatedAt) || typeof item.favorite !== "boolean")) throw new Error("設定メタデータが不正です");
+      if (saved.version >= 3 && (item.type !== category || item.version !== saved.version || !validDate(item.updatedAt) || typeof item.favorite !== "boolean")) throw new Error("設定メタデータが不正です");
       allIds.add(item.id);
-      const draft = cleanDraft(item.data);
+      const draft = migrateDraft(item.data, saved.version);
       // V2保存時の名前を管理名にも引き継ぎ、カードの要約に使用します。
       if (!draft[SCHEMA[category].name]) draft[SCHEMA[category].name] = item.name;
       return { id: item.id, type: category, name: item.name, createdAt: item.createdAt, updatedAt: item.updatedAt || item.createdAt, favorite: item.favorite === true, version: DATA_VERSION, data: categoryData(category, draft) };
@@ -94,7 +129,7 @@ function normalizeState(saved) {
   result.history = saved.history.map(item => {
     if (!isObject(item) || typeof item.id !== "string" || !item.id || historyIds.has(item.id) || typeof item.prompt !== "string" || !validDate(item.createdAt)) throw new Error("履歴が不正です");
     historyIds.add(item.id);
-    return { id: item.id, prompt: item.prompt, createdAt: item.createdAt, draft: cleanDraft(item.draft) };
+    return { id: item.id, prompt: item.prompt, createdAt: item.createdAt, draft: migrateDraft(item.draft, saved.version) };
   });
   if (isObject(saved.recent)) for (const category of Object.keys(SCHEMA)) {
     if (typeof saved.recent[category] === "string" && result.presets[category].some(p => p.id === saved.recent[category])) result.recent[category] = saved.recent[category];
@@ -105,12 +140,13 @@ function validDate(value) { return typeof value === "string" && Number.isFinite(
 function loadState() {
   try {
     const current = localStorage.getItem(STORAGE_KEY);
-    const legacy = current === null ? localStorage.getItem(LEGACY_KEY) : null;
-    if (current === null && legacy === null) return emptyState();
-    const result = normalizeState(JSON.parse(current ?? legacy));
+    const previous = current === null ? localStorage.getItem(PREVIOUS_KEY) : null;
+    const legacy = current === null && previous === null ? localStorage.getItem(LEGACY_KEY) : null;
+    if (current === null && previous === null && legacy === null) return emptyState();
+    const result = normalizeState(JSON.parse(current ?? previous ?? legacy));
     if (current === null) {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(result)); }
-      catch { showWarning("V2データは読み込めましたが、V2.1の保存に失敗しました。V2の元データは残っています。JSONでバックアップしてください。"); }
+      catch { showWarning("旧データは読み込めましたが、V2.2の保存に失敗しました。元データは残っています。JSONでバックアップしてください。"); }
     }
     return result;
   } catch {
@@ -143,22 +179,22 @@ function fillForm(draft) {
 function sentence(text) { return /[。！？.!?]$/.test(text) ? text : `${text}。`; }
 function buildPrompt(draft) {
   const d = Object.fromEntries(Object.entries(draft).map(([k,v]) => [k,v.trim()]));
-  const meaningful = FIELD_KEYS.filter(k => !Object.values(SCHEMA).some(s => s.name === k) && !["negative", "ratio", "style"].includes(k));
+  const meaningful = FIELD_KEYS.filter(k => !Object.values(SCHEMA).some(s => s.name === k) && !["negative", "ratio", "style", "expression"].includes(k));
   if (!meaningful.some(k => d[k])) return "";
   const styles = { "実写・フォトリアル": "実写・フォトリアルな画像を作成してください。", "スマートフォン写真風": "スマートフォンで撮影した写真のような画像を作成してください。", "イラスト": "イラストを作成してください。", "アニメ": "アニメ風の画像を作成してください。" };
   const lines = [styles[d.style]];
   const add = (key, prefix) => { if (d[key]) lines.push(`${prefix}${sentence(d[key])}`); };
-  add("description", "人物は、"); add("age", "年齢・年代は");
-  for (const [key, prefix] of Object.entries({ face:"顔立ちは",hairStyle:"髪型は",hairColor:"髪色は",eyes:"目の特徴は",skin:"肌の特徴・質感は",makeup:"メイクは",bodyType:"体型は",height:"身長は",physicalFeatures:"身体的特徴として、",features:"その他の特徴として、" })) add(key,prefix);
-  add("fixedFeatures", "一貫して固定する特徴は"); add("maintainedFeatures", "生成時に維持する特徴は"); add("characterNotes", "人物についての補足：");
+  add("age", "年齢・年代は"); add("description", "人物は、");
+  for (const [key, prefix] of Object.entries({ face:"顔立ちは",hair:"髪は",eyes:"目の特徴は",skinMakeup:"肌・メイクは",physique:"体型・身長は",physicalFeatures:"身体的特徴として、" })) add(key,prefix);
+  add("requiredFeatures", "必ず維持する特徴は"); add("characterNotes", "人物についての補足：");
   for (const [key,prefix] of Object.entries({outfit:"衣装は、",outfitType:"衣装の種類は",outfitColor:"衣装の色は",outfitMaterial:"素材は",outfitDesign:"衣装のデザインは",shoes:"靴は",accessories:"アクセサリーは",outfitOther:"衣装の補足："})) add(key,prefix);
-  const expression = d.actionExpression || d.expression;
+  for (const [key,prefix] of Object.entries({location:"場所は",timeOfDay:"時間帯は",situation:"シーンは、",sceneActivity:"人物は次の行動をしています：",people:"周囲の人物は",sceneLight:"シーンの照明は",atmosphere:"雰囲気は",props:"小物は",background:"背景は",sceneOther:"シーンの補足："})) add(key,prefix);
+  const expression = d.actionExpression;
   if (expression) lines.push(`表情は${sentence(expression)}`);
   // 表情・動作の視線を優先し、構図側と二重に指示しません。
   const gaze = d.gaze || d.cameraGaze;
   if (gaze) lines.push(`視線は${sentence(gaze)}`);
   for (const [key,prefix] of Object.entries({mouth:"口元は",movement:"身体の動作は",hands:"手の動きは",interaction:"人物同士のやり取りは",actionOther:"表情・動作の補足："})) add(key,prefix);
-  for (const [key,prefix] of Object.entries({location:"場所は",timeOfDay:"時間帯は",situation:"シーンは、",sceneActivity:"人物は次の行動をしています：",people:"周囲の人物は",sceneLight:"シーンの照明は",atmosphere:"雰囲気は",props:"小物は",background:"背景は",sceneOther:"シーンの補足："})) add(key,prefix);
   for (const [key,prefix] of Object.entries({composition:"構図は、",framing:"撮影範囲は",cameraDirection:"カメラ方向は",cameraHeight:"カメラの高さは",distance:"被写体との距離は",angle:"アングルは",pose:"ポーズは",photographer:"撮影者は",cameraFeel:"構図の撮影機材感は",lens:"レンズ感は",bokeh:"背景ボケは",compositionOther:"撮影の補足："})) add(key,prefix);
   for (const [key,prefix] of Object.entries({finishCamera:"仕上がりの撮影機材感は",finishLight:"光は",tone:"色調は",depth:"被写界深度は",texture:"画質・質感は",finishOther:"仕上がりの補足："})) add(key,prefix);
   lines.push(`画像比率は${d.ratio}にしてください。`);
@@ -174,8 +210,8 @@ function createField(key, label, prefix = "") {
   if (["ratio", "style"].includes(key)) {
     for (const value of key === "ratio" ? RATIOS : STYLES) input.add(new Option(value, value));
   } else {
-    input.rows = 2;
-    input.placeholder = label.startsWith("管理用") ? "一覧で見分けるための名前" : "必要な内容だけ入力";
+    input.rows = ["description", "requiredFeatures", "characterNotes"].includes(key) ? 3 : 2;
+    input.placeholder = PLACEHOLDERS[key] || `例：${label}についての希望を記入`;
     if (Object.values(SCHEMA).some(s => s.name === key)) input.maxLength = 100;
   }
   wrapper.append(labelNode, input);
@@ -190,6 +226,7 @@ function appendCategoryFields(container, category, prefix = "") {
   container.append(details);
 }
 function setupEditors() {
+  const legacyExpression = element("input"); legacyExpression.type = "hidden"; legacyExpression.name = "expression"; legacyExpression.id = "expression"; form.append(legacyExpression);
   for (const [category, schema] of Object.entries(SCHEMA)) {
     const quick = element("div");
     const label = element("label", "", schema.label); label.htmlFor = `preset-${category}`;
@@ -202,7 +239,8 @@ function setupEditors() {
     const preview = element("span", "card-summary"); preview.id = `summary-${category}`; summary.append(preview);
     const body = element("div", "card-body"); appendCategoryFields(body,category);
     if (category === "finish") body.append(element("p", "hint", "比率は生成サービス側でも設定が必要な場合があります。"));
-    body.append(action(`${schema.label}を保存`, () => openSave(category)));
+    body.append(action(`${schema.label}を別名で保存`, () => openSave(category)));
+    body.append(element("p", "hint", "新規保存です。元の設定を上書きする場合は「保存設定」の「編集」から変更を保存してください。"));
     card.append(summary,body); $("#editor-cards").append(card);
     $("#preset-category").add(new Option(schema.label,category));
   }
@@ -217,6 +255,7 @@ function hasCategoryContent(category,draft) {
   return Object.keys(SCHEMA[category].fields).filter(k => k !== SCHEMA[category].name).some(k => draft[k].trim());
 }
 function renderPrompt() {
+  resizeTextareas(form);
   const draft = readDraft();
   currentPrompt = buildPrompt(draft);
   $("#prompt-output").textContent = currentPrompt || "設定を選ぶか、カードを開いて入力してください。";
@@ -262,6 +301,10 @@ function renderQuick() {
 function applyPreset(category,id) {
   const item = state.presets[category].find(p => p.id === id); if (!item) return;
   for (const key of Object.keys(SCHEMA[category].fields)) form.elements.namedItem(key).value = item.data[key];
+  if (category === "character") {
+    form.elements.namedItem("expression").value = item.data.expression || "";
+    if (!form.elements.namedItem("actionExpression").value.trim() && item.data.expression) form.elements.namedItem("actionExpression").value = item.data.expression;
+  }
   state.draft = readDraft(); state.recent[category] = id;
   $(`#preset-${category}`).value = id;
   $(`#card-${category}`).open = false;
@@ -321,11 +364,19 @@ function openEdit(category,id) {
   for (const key of Object.keys(SCHEMA[category].fields)) $(`#edit-${key}`).value=item.data[key];
   // 管理名は設定名欄に一本化し、二重入力を避けます。
   $(`#edit-${SCHEMA[category].name}`).parentElement.hidden=true;
-  $("#edit-dialog").showModal(); $("#edit-name").focus();
+  $("#edit-dialog").showModal(); resizeTextareas($("#edit-form")); $("#edit-name").focus();
+}
+// 長文も手動リサイズなしで読める高さへ。折りたたみ中は展開時に再計算します。
+function resizeTextareas(container) {
+  for (const textarea of container.querySelectorAll("textarea")) {
+    textarea.style.height = "auto";
+    const minimum = textarea.rows >= 3 ? 96 : 72;
+    textarea.style.height = `${Math.min(256, Math.max(minimum, textarea.scrollHeight || minimum))}px`;
+  }
 }
 function editPreset(category,id,name,data) {
   if (!findPreset(category,id) || !name.trim()) return false;
-  const draft=cleanDraft(data);
+  const draft=cleanDraft({...data, ...(category === "character" ? {expression: findPreset(category,id).data.expression || ""} : {})});
   if (!hasCategoryContent(category,draft)) { showStatus("設定内容を入力してください"); return false; }
   return commitChange(() => {
     const item=findPreset(category,id); item.name=name.trim(); item.data=categoryData(category,draft);
@@ -398,14 +449,14 @@ function makeBackup() {
   const backup={app:"ai-prompt-maker",exportedAt:new Date().toISOString(),...state};
   // 読めない元データも回収し、空の初期状態だけを書き出して失わないようにします。
   if(storageBlocked) {
-    try {backup.recoveryData={current:localStorage.getItem(STORAGE_KEY),legacy:localStorage.getItem(LEGACY_KEY)};}
+    try {backup.recoveryData={current:localStorage.getItem(STORAGE_KEY),previous:localStorage.getItem(PREVIOUS_KEY),legacy:localStorage.getItem(LEGACY_KEY)};}
     catch {backup.recoveryNote="ブラウザの保存領域を読み取れませんでした";}
   }
   return JSON.stringify(backup,null,2);
 }
 function exportBackup() {
   const blob=new Blob([makeBackup()],{type:"application/json"}); const url=URL.createObjectURL(blob);
-  const link=element("a"); link.href=url; link.download=`ai-prompt-maker-v2-1-${new Date().toISOString().slice(0,10)}.json`;
+  const link=element("a"); link.href=url; link.download=`ai-prompt-maker-v2-2-${new Date().toISOString().slice(0,10)}.json`;
   document.body.append(link); link.click(); link.remove(); setTimeout(()=>URL.revokeObjectURL(url),10000);
   showStatus("JSONを書き出しました。ダウンロードを確認してください。");
 }
@@ -414,7 +465,7 @@ function importBackup(text) {
   if(parsed.app!==undefined && parsed.app!=="ai-prompt-maker") throw new Error("別のアプリのバックアップです");
   const incoming=normalizeState(parsed);
   const count=Object.values(incoming.presets).reduce((total,items)=>total+items.length,0);
-  if(!confirm(`設定${count}件・履歴${incoming.history.length}件を復元します。現在のV2.1設定・履歴・入力を置き換えますか？`)) return false;
+  if(!confirm(`設定${count}件・履歴${incoming.history.length}件を復元します。現在のV2.2設定・履歴・入力を置き換えますか？`)) return false;
   // 読み込み不可状態からの復元も明示的な確認後だけ許可します。
   try {localStorage.setItem(STORAGE_KEY,JSON.stringify(incoming));}
   catch {showWarning("復元を保存できませんでした。現在のデータは変更していません。");return false;}
@@ -466,3 +517,5 @@ function updateKeyboardLayout() {
 window.visualViewport?.addEventListener("resize",updateKeyboardLayout);
 document.addEventListener("focusin",updateKeyboardLayout);
 document.addEventListener("focusout",()=>setTimeout(updateKeyboardLayout,50));
+document.addEventListener("toggle",()=>{resizeTextareas(form);resizeTextareas($("#edit-form"));},true);
+$("#edit-form").addEventListener("input",()=>resizeTextareas($("#edit-form")));

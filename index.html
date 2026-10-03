@@ -4,13 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#6750a4">
-  <title>AIプロンプトメーカー V2.1</title>
+  <title>AIプロンプトメーカー V2.2</title>
   <link rel="stylesheet" href="style.css">
   <script src="script.js" defer></script>
 </head>
 <body>
 <main class="app">
-  <header class="hero"><p class="eyebrow">IMAGE PROMPT TOOL · V2.1</p><h1>AIプロンプトメーカー</h1><p class="lead">保存した設定を選んで、イメージを言葉に。</p></header>
+  <header class="hero"><p class="eyebrow">IMAGE PROMPT TOOL · V2.2</p><h1>AIプロンプトメーカー</h1><p class="lead">保存した設定を選んで、イメージを言葉に。</p></header>
   <noscript>このツールを使うにはJavaScriptを有効にしてください。</noscript>
   <p id="storage-warning" class="warning" role="alert" hidden></p>
   <p id="status" class="status" role="status" aria-live="polite"></p>
@@ -24,12 +24,12 @@
     <section id="result" class="card result-card"><h2>完成プロンプト</h2><p class="hint">入力に合わせて自動更新。管理名は出力しません。</p><p id="prompt-output" class="prompt-output"></p><button id="copy-button" type="button" class="primary">通常プロンプトをコピー</button><h3>ネガティブプロンプト</h3><p id="negative-output" class="prompt-output"></p><button id="copy-negative" type="button" class="secondary">ネガティブをコピー</button><button id="save-history" type="button" class="primary">履歴に保存</button></section>
   </section>
   <section id="panel-presets" aria-labelledby="nav-presets" hidden><h2>保存設定</h2><label for="preset-category">カテゴリ</label><select id="preset-category"></select><p class="hint">読み込み後の入力編集は、元の設定を変更しません。</p><div id="preset-list"></div>
-    <details class="card"><summary>バックアップ・復元</summary><p class="hint">全設定・履歴・作成途中の入力をJSONに保存します。復元は現在のV2.1データを置き換えます。</p><button id="export-data" type="button" class="secondary">JSONを書き出す</button><label for="import-data">JSONを読み込む</label><input id="import-data" type="file" accept=".json,application/json"><p class="hint">V2の保存データ形式にも対応。復元前にバックアップをおすすめします。</p></details>
+    <details class="card"><summary>バックアップ・復元</summary><p class="hint">全設定・履歴・作成途中の入力をJSONに保存します。復元は現在のV2.2データを置き換えます。</p><button id="export-data" type="button" class="secondary">JSONを書き出す</button><label for="import-data">JSONを読み込む</label><input id="import-data" type="file" accept=".json,application/json"><p class="hint">V2・V2.1の保存データ形式にも対応。復元前にバックアップをおすすめします。</p></details>
   </section>
   <section id="panel-history" aria-labelledby="nav-history" hidden><h2>履歴 <span id="history-count"></span></h2><p class="hint">最新100件。設定を復元して再利用できます。</p><div id="history-list"></div></section>
   <p class="note">画像生成は行いません。保存はこのブラウザ内のみ。大切な設定はJSONでバックアップしてください。</p>
 </main>
-<div id="result-shortcuts" class="result-shortcuts"><button id="jump-result" type="button" class="secondary">結果を見る</button><button id="quick-copy" type="button" class="primary">コピー</button></div>
+<div id="result-shortcuts" class="result-shortcuts"><button id="jump-result" type="button" class="secondary">結果</button><button id="quick-copy" type="button" class="primary">コピー</button></div>
 <nav class="bottom-nav" aria-label="メインナビゲーション"><button id="nav-create" type="button" data-tab="create" aria-controls="panel-create" aria-current="page">✦<span>作成</span></button><button id="nav-presets" type="button" data-tab="presets" aria-controls="panel-presets">▣<span>保存設定</span></button><button id="nav-history" type="button" data-tab="history" aria-controls="panel-history">↺<span>履歴</span></button></nav>
 <dialog id="save-dialog"><form id="save-form"><h2 id="save-title">設定を保存</h2><label for="preset-name">設定名</label><input id="preset-name" maxlength="100" required><p id="save-hint" class="hint"></p><div class="actions"><button id="cancel-save" type="button" class="secondary">キャンセル</button><button type="submit" class="primary">保存</button></div></form></dialog>
 <dialog id="edit-dialog"><form id="edit-form"><h2 id="edit-title">保存設定を編集</h2><label for="edit-name">設定名</label><input id="edit-name" maxlength="100" required><div id="edit-fields"></div><div class="dialog-actions actions"><button id="cancel-edit" type="button" class="secondary">キャンセル</button><button type="submit" class="primary">変更を保存</button></div></form></dialog>

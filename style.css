@@ -86,3 +86,19 @@ input[type="file"] { min-width: 0; max-width: 100%; }
 .keyboard-open .app { padding-bottom: 12px; }
 .keyboard-open .status { bottom: 12px; }
 @media (max-width: 350px) { .app { padding-left: 12px; padding-right: 12px; } .quick-grid { gap: 8px; } }
+
+/* V2.2: 操作44px + ナビ64px。安全領域と余白もまとめて確保。 */
+:root { --action-height: 48px; --nav-height: 64px; --bottom-space: calc(var(--action-height) + var(--nav-height) + env(safe-area-inset-bottom)); }
+.app { padding-bottom: calc(var(--bottom-space) + 24px); }
+.bottom-nav { height: calc(var(--nav-height) + env(safe-area-inset-bottom)); padding: 4px 8px calc(4px + env(safe-area-inset-bottom)); }
+.bottom-nav button { min-height: 48px; padding: 4px 8px; }
+.bottom-nav span { margin-top: 0; }
+.result-shortcuts { height: var(--action-height); bottom: calc(var(--nav-height) + env(safe-area-inset-bottom)); padding: 2px 16px; }
+.result-shortcuts button { min-height: 44px; height: 44px; padding: 8px 12px; font-size: 16px; }
+.status { bottom: calc(var(--bottom-space) + 8px); }
+#result, .field, .card-body button { scroll-margin-bottom: calc(var(--bottom-space) + 16px); }
+textarea { min-height: 72px; line-height: 1.5; resize: none; overflow-y: auto; }
+input, textarea, select { scroll-margin-bottom: calc(var(--bottom-space) + 16px); }
+.keyboard-open .result-shortcuts { height: auto; }
+.keyboard-open .bottom-nav { height: auto; }
+.keyboard-open .status { bottom: 12px; }
