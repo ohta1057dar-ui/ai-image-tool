@@ -431,15 +431,15 @@ function renderHistory() {
     row.append(actions); list.append(row);
   }
 }
-async function copyText(text,target) {
+async function copyText(text,target,successMessage="コピーしました！") {
   if(!text) return;
-  try { await navigator.clipboard.writeText(text); showStatus("コピーしました！"); }
+  try { await navigator.clipboard.writeText(text); showStatus(successMessage); }
   catch {
     const temporary=element("textarea"); temporary.value=text; temporary.setAttribute("readonly",""); temporary.style.position="fixed"; temporary.style.top="0"; document.body.append(temporary);
     const active=document.activeElement; temporary.select(); temporary.setSelectionRange(0,text.length);
     let copied=false; try {copied=document.execCommand("copy");} catch { /* 長押しへ誘導 */ }
     temporary.remove(); active?.focus?.({preventScroll:true});
-    if(copied) {showStatus("コピーしました！");return;}
+    if(copied) {showStatus(successMessage);return;}
     if(target.tagName==="DETAILS") target.open=true;
     target.scrollIntoView({block:"center"}); showStatus("コピーできませんでした。表示された文章を長押ししてコピーしてください。",5000);
   }
@@ -477,9 +477,10 @@ function showResult() {switchTab("create");$("#result").scrollIntoView({block:"s
 setupEditors(); fillForm(state.draft); renderQuick(); renderPresets(); renderHistory();
 form.addEventListener("input",updateDraft);
 form.addEventListener("change",updateDraft);
-form.addEventListener("submit",event=>{event.preventDefault();updateDraft();showResult();});
+form.addEventListener("submit",event=>{event.preventDefault();});
 $("#jump-result").addEventListener("click",showResult);
-for(const id of ["copy-button","quick-copy"]) $(`#${id}`).addEventListener("click",()=>copyText(currentPrompt,$("#prompt-output")));
+$("#copy-button").addEventListener("click",()=>copyText(currentPrompt,$("#prompt-output")));
+$("#quick-copy").addEventListener("click",()=>copyText(currentPrompt,$("#prompt-output"),"通常プロンプトをコピーしました"));
 $("#copy-negative").addEventListener("click",()=>copyText(readDraft().negative.trim(),$("#negative-output")));
 $("#save-history").addEventListener("click",saveHistory);
 document.querySelectorAll("[data-tab]").forEach(button=>button.addEventListener("click",()=>switchTab(button.dataset.tab)));

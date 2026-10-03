@@ -19,7 +19,6 @@
     <form id="prompt-form">
       <div id="editor-cards"></div>
       <details class="card editor-card"><summary>ネガティブプロンプト<span id="negative-summary" class="card-summary">未入力</span></summary><div class="card-body"><label for="negative">避けたい要素</label><textarea id="negative" name="negative" rows="3" placeholder="例：ぼやけ、文字、透かし"></textarea><p class="hint">対応サービスの専用欄へ貼り付けます。</p></div></details>
-      <button type="submit" class="secondary">プロンプトを見る</button>
     </form>
     <section id="result" class="card result-card"><h2>完成プロンプト</h2><p class="hint">入力に合わせて自動更新。管理名は出力しません。</p><p id="prompt-output" class="prompt-output"></p><button id="copy-button" type="button" class="primary">通常プロンプトをコピー</button><h3>ネガティブプロンプト</h3><p id="negative-output" class="prompt-output"></p><button id="copy-negative" type="button" class="secondary">ネガティブをコピー</button><button id="save-history" type="button" class="primary">履歴に保存</button></section>
   </section>

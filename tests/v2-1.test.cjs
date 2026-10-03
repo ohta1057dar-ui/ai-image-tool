@@ -161,6 +161,12 @@ function previousFixture(){
   const empty=boot();await empty.input('characterName','管理名だけ');await empty.input('negative','避けたい');
   check('管理名/ネガティブのみでは通常文生成しない',()=>{assert.equal(empty.run('currentPrompt'),'');assert(empty.$('#copy-button').disabled);assert(!empty.$('#copy-negative').disabled);});
   await empty.input('outfit','コート');check('空欄除外・未入力情報を追加しない',()=>{const p=empty.run('currentPrompt');assert(!p.includes('表情'));assert(!p.includes('肌'));assert(!p.includes('自然な'));assert(!p.includes('undefined'));assert(p.includes('コート'));});
+  check('作成フォームの重複結果ボタンを削除',()=>assert(!walk(empty.$('#prompt-form')).some(n=>n.tagName==='BUTTON'&&n.textContent==='プロンプトを見る')));
+  await empty.$('#prompt-form').emit('submit');check('フォーム送信で結果へ移動しない',()=>assert(!empty.$('#result').scrolled));
+  await empty.$('#jump-result').emit('click');check('固定の結果ボタンで結果へ移動',()=>assert(empty.$('#result').scrolled));
+  await empty.$('#quick-copy').emit('click');check('固定コピーは通常文と明確な成功表示',()=>{assert.equal(empty.copies.at(-1),empty.run('currentPrompt'));assert.equal(empty.$('#status').textContent,'通常プロンプトをコピーしました');});
+  await empty.$('#copy-button').emit('click');check('カード内コピーの表示を維持',()=>assert.equal(empty.$('#status').textContent,'コピーしました！'));
+  empty.flags.clipFail=true;empty.flags.fallback=true;await empty.$('#quick-copy').emit('click');check('固定コピーの代替成功も明確な表示',()=>assert.equal(empty.$('#status').textContent,'通常プロンプトをコピーしました'));empty.flags.clipFail=false;
   empty.run('openSave("outfit")');empty.$('#preset-name').value='コート設定';await empty.$('#save-form').emit('submit');
   check('保存ダイアログのイベント経由で保存・要約更新',()=>{assert.equal(empty.data().presets.outfit[0].name,'コート設定');assert(empty.$('#summary-outfit').textContent.includes('コート設定'));assert(!empty.$('#save-dialog').open);});
   const outfitId=empty.data().presets.outfit[0].id;empty.run(`toggleFavorite('outfit','${outfitId}');toggleFavorite('outfit','${outfitId}');`);
