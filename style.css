@@ -46,3 +46,43 @@ dialog { width: min(calc(100% - 32px), 440px); max-height: 85dvh; overflow: auto
 dialog::backdrop { background: rgb(30 20 45 / 45%); }
 #result { scroll-margin-top: 16px; }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
+
+/* V2.1: 6カテゴリを小さく折りたたみ、結果操作を親指の近くへ。 */
+.app { padding-top: 16px; padding-bottom: calc(170px + env(safe-area-inset-bottom)); }
+.hero { margin-bottom: 12px; }
+.card { margin: 10px 0; padding: 14px; border-radius: 14px; }
+h2 { font-size: 18px; margin-bottom: 8px; }
+.editor-card { padding: 0; }
+.editor-card > summary { padding: 14px; min-height: 64px; }
+.card-label { font-size: 16px; }
+.card-summary { display: block; color: #655c70; font-size: 14px; font-weight: 500; margin: 4px 0 0 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-body { padding: 0 14px 14px; }
+.field-details { margin-top: 12px; }
+.field-details > summary { font-size: 15px; }
+.quick-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
+.quick-grid label { margin-top: 4px; }
+.quick-grid select { padding: 10px 6px; min-width: 0; }
+.quick-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.chip { max-width: 100%; min-height: 44px; padding: 8px; border-radius: 9px; font-size: 14px; color: #51317f; background: #eee7f8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preset-row, .history-row { padding: 12px; margin: 8px 0; border: 1px solid #e4ddeb; border-radius: 12px; background: #fff; min-width: 0; }
+.preset-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.preset-heading h3 { margin: 0; font-size: 16px; min-width: 0; }
+.favorite { flex-shrink: 0; min-width: 48px; color: #67449f; background: #eee7f8; font-size: 24px; padding: 6px; }
+.row-actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; margin-top: 8px; }
+.row-actions button { margin: 0; padding: 10px 6px; font-size: 14px; min-width: 0; }
+.history-row h3 { margin: 0; font-size: 16px; }
+.history-brief { margin: 6px 0; font-size: 14px; color: #655c70; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.history-row .hint { margin: 4px 0; }
+.history-row details { margin-top: 6px; }
+.history-row summary { padding: 10px 0; }
+.result-shortcuts { position: fixed; left: 0; right: 0; bottom: calc(78px + env(safe-area-inset-bottom)); z-index: 4; display: flex; gap: 8px; max-width: 480px; margin: auto; padding: 8px 16px; background: rgb(247 244 252 / 96%); }
+.result-shortcuts button { margin: 0; }
+.status { bottom: calc(148px + env(safe-area-inset-bottom)); }
+.dialog-actions { position: sticky; bottom: -22px; background: #fff; padding: 8px 0; }
+#result { scroll-margin-bottom: 170px; }
+input[type="file"] { min-width: 0; max-width: 100%; }
+.keyboard-open .result-shortcuts { position: static; margin: 0 auto; }
+.keyboard-open .bottom-nav { position: static; }
+.keyboard-open .app { padding-bottom: 12px; }
+.keyboard-open .status { bottom: 12px; }
+@media (max-width: 350px) { .app { padding-left: 12px; padding-right: 12px; } .quick-grid { gap: 8px; } }
