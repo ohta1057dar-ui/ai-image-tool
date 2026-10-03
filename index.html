@@ -1,64 +1,60 @@
 <!doctype html>
 <html lang="ja">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#6750a4">
-    <title>AIプロンプトメーカー</title>
-    <link rel="stylesheet" href="style.css">
-    <script src="script.js" defer></script>
-  </head>
-  <body>
-    <main class="app">
-      <header class="hero">
-        <span class="hero__icon" aria-hidden="true">✦</span>
-        <div>
-          <p class="eyebrow">IMAGE PROMPT TOOL</p>
-          <h1>AIプロンプトメーカー</h1>
-          <p class="lead">イメージを入力して、画像生成用のプロンプトを作りましょう。</p>
-        </div>
-      </header>
-
-      <form id="prompt-form" class="card">
-        <div class="field">
-          <label for="character">キャラクター名</label>
-          <input id="character" name="character" type="text" placeholder="例：魔法使いの少女">
-        </div>
-
-        <div class="field">
-          <label for="outfit">衣装</label>
-          <input id="outfit" name="outfit" type="text" placeholder="例：星柄の青いローブ">
-        </div>
-
-        <div class="field">
-          <label for="situation">シチュエーション</label>
-          <textarea id="situation" name="situation" rows="3" placeholder="例：夜の森で魔法を使っている"></textarea>
-        </div>
-
-        <div class="field">
-          <label for="composition">構図</label>
-          <input id="composition" name="composition" type="text" placeholder="例：全身、正面、ローアングル">
-        </div>
-
-        <button class="primary-button" type="submit">
-          <span aria-hidden="true">✦</span>
-          プロンプトを作る
-        </button>
-      </form>
-
-      <section class="result-card" aria-labelledby="result-heading">
-        <div class="result-heading">
-          <h2 id="result-heading">生成されたプロンプト</h2>
-          <span id="status" class="status" role="status" aria-live="polite"></span>
-        </div>
-        <p id="prompt-output" class="prompt-output">入力した内容がここに表示されます。</p>
-        <button id="copy-button" class="copy-button" type="button" disabled>
-          <span aria-hidden="true">▣</span>
-          コピーする
-        </button>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#6750a4">
+  <title>AIプロンプトメーカー V2</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="script.js" defer></script>
+</head>
+<body>
+<main class="app">
+  <header class="hero"><p class="eyebrow">IMAGE PROMPT TOOL · V2</p><h1>AIプロンプトメーカー</h1><p class="lead">設定を組み合わせて、イメージを言葉に。</p></header>
+  <p id="storage-warning" class="warning" role="alert" hidden></p>
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+  <section id="panel-create" aria-labelledby="nav-create">
+    <form id="prompt-form">
+      <section class="card"><h2>人物・キャラクター</h2>
+        <label for="preset-character">保存したキャラクター</label><select id="preset-character" data-preset="character"><option value="">設定を選択</option></select>
+        <label for="characterName">管理用キャラクター名</label><input id="characterName" name="characterName" maxlength="100" placeholder="例：旅する魔法使い（管理用）">
+        <label for="description">人物説明</label><textarea id="description" name="description" rows="2" placeholder="例：落ち着いた雰囲気の魔法使い"></textarea>
+        <details><summary>人物の詳細を設定</summary><div class="detail-fields">
+          <label for="age">年齢／年代</label><input id="age" name="age" placeholder="例：20代の成人">
+          <label for="hairStyle">髪型</label><input id="hairStyle" name="hairStyle" placeholder="例：肩までのゆるいウェーブ">
+          <label for="hairColor">髪色</label><input id="hairColor" name="hairColor" placeholder="例：ダークブラウン">
+          <label for="skin">肌・肌質</label><input id="skin" name="skin" placeholder="例：自然な肌の質感、そばかす">
+          <label for="expression">表情</label><input id="expression" name="expression" placeholder="例：穏やかな微笑み">
+          <label for="bodyType">体型</label><input id="bodyType" name="bodyType" placeholder="例：引き締まった体型">
+          <label for="features">その他の特徴</label><textarea id="features" name="features" rows="2" placeholder="例：緑色の瞳、丸い眼鏡"></textarea>
+        </div></details>
+        <button type="button" class="secondary" data-save="character">このキャラクターを保存</button>
       </section>
-
-      <p class="note">このツールは画像を生成しません。作ったプロンプトをお好みの画像生成サービスでお使いください。</p>
-    </main>
-  </body>
+      <section class="card"><h2>衣装・シーン</h2>
+        <label for="preset-outfit">保存した衣装</label><select id="preset-outfit" data-preset="outfit"><option value="">設定を選択</option></select>
+        <label for="outfit">衣装</label><textarea id="outfit" name="outfit" rows="2" placeholder="例：星柄の青いローブ"></textarea><button type="button" class="secondary" data-save="outfit">この衣装を保存</button>
+        <label for="preset-situation">保存したシチュエーション</label><select id="preset-situation" data-preset="situation"><option value="">設定を選択</option></select>
+        <label for="situation">シチュエーション</label><textarea id="situation" name="situation" rows="3" placeholder="例：夜の森で魔法を使っている"></textarea><button type="button" class="secondary" data-save="situation">このシチュエーションを保存</button>
+        <label for="preset-composition">保存した構図</label><select id="preset-composition" data-preset="composition"><option value="">設定を選択</option></select>
+        <label for="composition">構図・カメラアングル</label><textarea id="composition" name="composition" rows="2" placeholder="例：全身、正面、ローアングル"></textarea><button type="button" class="secondary" data-save="composition">この構図を保存</button>
+      </section>
+      <section class="card"><h2>仕上がり</h2>
+        <label for="ratio">画像比率</label><select id="ratio" name="ratio"><option value="9:16">9:16 · 縦長</option><option value="4:5">4:5 · 縦長</option><option value="1:1">1:1 · 正方形</option><option value="16:9">16:9 · 横長</option></select><p class="hint">生成サービス側でも画像サイズを設定してください。</p>
+        <label for="style">画像スタイル</label><select id="style" name="style"><option>実写風</option><option>イラスト風</option><option>アニメ風</option></select>
+        <label for="negative">ネガティブプロンプト</label><textarea id="negative" name="negative" rows="3" placeholder="例：ぼやけ、文字、透かし"></textarea><p class="hint">避けたい要素。対応する生成サービスの専用欄へ貼り付けます。</p>
+      </section>
+      <button type="submit" class="primary">プロンプトを作る・結果を見る</button>
+    </form>
+    <section id="result" class="card result-card"><h2>完成プロンプト</h2><p class="hint">入力に合わせて自動更新します。管理用の名前は出力しません。</p><p id="prompt-output" class="prompt-output"></p><button id="copy-button" type="button" class="primary">通常プロンプトをコピー</button>
+      <h3>ネガティブプロンプト</h3><p id="negative-output" class="prompt-output"></p><button id="copy-negative" type="button" class="secondary">ネガティブをコピー</button>
+      <button id="save-history" type="button" class="primary">履歴に保存</button>
+    </section>
+  </section>
+  <section id="panel-presets" aria-labelledby="nav-presets" hidden><h2>保存設定</h2><p class="lead">読み込んだ後の編集は、元の設定を変更しません。</p><div id="preset-list"></div><p class="note">設定はこの端末・ブラウザ内に保存されます。</p></section>
+  <section id="panel-history" aria-labelledby="nav-history" hidden><h2>履歴 <span id="history-count"></span></h2><p class="lead">最新100件を保存。入力内容ごと復元できます。</p><div id="history-list"></div></section>
+  <p class="note">画像生成は行いません。プロンプトをコピーして画像生成サービスでお使いください。ブラウザのデータを削除すると保存内容も消えます。</p>
+</main>
+<nav class="bottom-nav" aria-label="メインナビゲーション"><button id="nav-create" type="button" data-tab="create" aria-controls="panel-create" aria-current="page">✦<span>作成</span></button><button id="nav-presets" type="button" data-tab="presets" aria-controls="panel-presets">▣<span>保存設定</span></button><button id="nav-history" type="button" data-tab="history" aria-controls="panel-history">↺<span>履歴</span></button></nav>
+<dialog id="save-dialog"><form id="save-form"><h2>設定を保存</h2><label for="preset-name">設定の名前</label><input id="preset-name" maxlength="100" required><p class="hint">同じ名前でも別の設定として保存します。</p><div class="actions"><button id="cancel-save" type="button" class="secondary">キャンセル</button><button type="submit" class="primary">保存</button></div></form></dialog>
+</body>
 </html>
