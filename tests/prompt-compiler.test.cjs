@@ -8,17 +8,17 @@ const context = vm.createContext({});
 vm.runInContext([
   source.slice(0,source.indexOf('const $ =')),
   source.slice(source.indexOf('function isObject('),source.indexOf('function categoryData(')),
-  source.slice(source.indexOf('function compileCameraPhrase('),source.indexOf('function createField('))
+  source.slice(source.indexOf('function sentence('),source.indexOf('function createField('))
 ].join('\n'),context);
 const run = code => vm.runInContext(code,context);
 const compile = fields => run(`buildPrompt(cleanDraft(${JSON.stringify(fields)}))`);
 let count=0;
 const test=(name,fn)=>{fn();console.log('PASS '+name);count++;};
 const example={description:'明るい雰囲気',outfit:'黒のナイトドレス',situation:'ナイトパーティでおさけをのんでる',composition:'全身\n友達が撮影',ratio:'9:16',style:'実写・フォトリアル'};
-test('A 人物＋衣装＋シーン＋構図＋仕上がり',()=>{const p=compile(example);for(const text of Object.values(example))if(!text.includes('\n'))assert(p.includes(text));assert(p.includes('頭から足元まで'));assert(p.includes('友達が撮影したような視点'));assert(!p.includes('ネックレス'));assert(!p.includes('ハイヒール'));});
+test('A 人物＋衣装＋シーン＋構図＋仕上がり',()=>{const p=compile(example);for(const text of Object.values(example))if(!text.includes('\n'))assert(p.includes(text));assert(p.includes('頭から足元まで'));assert(p.includes('友人が撮影したような自然な視点'));assert(!p.includes('ネックレス'));assert(!p.includes('ハイヒール'));});
 test('B 人物だけ・未入力カテゴリを生成しない',()=>{const p=compile({description:'成人の人物'});assert(p.includes('成人の人物'));for(const text of ['衣装\n','シーン・場所\n','構図\n','肌・メイク','光・質感・仕上がり\n'])assert(!p.includes(text));});
 test('C 衣装だけ・人物特徴を創作しない',()=>{const p=compile({outfit:'黒のナイトドレス'});assert(p.includes('黒のナイトドレス'));assert(!p.includes('人物\n'));assert(!p.includes('女性'));assert(!p.includes('靴'));});
-test('D 構図だけ・全身/自撮りの限定的な補助',()=>{const p=compile({composition:'全身、自撮り'});assert(p.includes('頭から足元まで'));assert(p.includes('本人が自分を撮影する視点'));assert(!p.includes('腕を'));assert(!p.includes('ローアングル'));});
+test('D 構図だけ・全身/自撮りの限定的な補助',()=>{const p=compile({composition:'全身、自撮り'});assert(p.includes('頭から足元まで'));assert(p.includes('本人が自分を撮影する自撮りの視点'));assert(!p.includes('腕を'));assert(!p.includes('ローアングル'));});
 test('E 空欄・管理情報・ネガティブだけなら通常文は空',()=>{assert.equal(compile({}),'');assert.equal(compile({description:'  \n',characterName:'管理名',negative:'避けたい内容'}),'');});
 test('F 全項目の情報を保持し10段階の順序を守る',()=>{
   const keys=run('FIELD_KEYS');const names=run('Object.values(SCHEMA).map(s=>s.name)');
@@ -27,9 +27,9 @@ test('F 全項目の情報を保持し10段階の順序を守る',()=>{
   const p=compile(data);
   for(const key of keys)if(!names.includes(key)&&!['negative','expression','style'].includes(key))assert(p.includes(data[key]),key);
   for(const key of names)assert(!p.includes(data[key]));
-  let position=-1;for(const marker of ['4:5','人物\n','外見・一貫性\n','衣装\n','シーン・場所\n','表情・動作\n','構図\n','カメラ・視点\n','光・質感・仕上がり\n','補足\n']){const next=p.indexOf(marker);assert(next>position,marker);position=next;}
+  let position=-1;for(const marker of ['4:5','内容_age','内容_description','内容_face','内容_requiredFeatures','内容_outfit','内容_situation','内容_actionExpression','内容_composition','内容_cameraDirection','内容_finishLight','内容_characterNotes']){const next=p.indexOf(marker);assert(next>position,marker);position=next;}
 });
-test('G 固定特徴を優先指示として保持',()=>{const p=compile({face:'自然な左右差',requiredFeatures:'顔を左右対称にしない'});assert(p.includes('自然な左右差'));assert(p.includes('必ず維持する'));assert(p.includes('顔を左右対称にしない'));});
+test('G 固定特徴を優先指示として保持',()=>{const p=compile({face:'自然な左右差',requiredFeatures:'顔を左右対称にしない'});assert(p.includes('自然な左右差'));assert(p.includes('人物の一貫性を保つ'));assert(p.includes('顔を左右対称にしない'));});
 test('H 旧固定/維持項目の移行後も情報を保持',()=>{const fields={description:'人物',fixedFeatures:'顔を固定',maintainedFeatures:'髪色を維持',hairStyle:'ロング',hairColor:'茶色'};const p=run(`buildPrompt(migrateDraft(${JSON.stringify(fields)},3))`);for(const text of ['顔を固定','髪色を維持','ロング','茶色'])assert(p.includes(text));});
 test('I ネガティブを混ぜず、入力オブジェクトも変更しない',()=>{const data={...example,negative:'低画質、文字\n透かしを避ける'};const before=JSON.stringify(data);assert(!compile(data).includes(data.negative));assert.equal(JSON.stringify(data),before);assert.equal(compile({...example,negative:''}),compile(data));});
 test('J 管理用キャラクター名を含めない',()=>assert(!compile({...example,characterName:'非公開管理名'}).includes('非公開管理名')));
@@ -41,7 +41,12 @@ test('O 年齢/服/動作/カメラ位置/比率等の重要情報を落とさ�
 test('否定や未知の構図は推測して書き換えない',()=>{const text='全身を入れない、友達が撮影しない、自撮りではない';const p=compile({composition:text});assert(p.includes(text));assert(!p.includes('頭から足元まで'));assert(!p.includes('本人が自分'));});
 test('同一の維持指示だけ重複整理・異なる指示は保持',()=>{const p=compile({requiredFeatures:'髪色を維持\n髪色を維持\n髪型を維持'});assert.equal(p.split('髪色を維持').length-1,1);assert(p.includes('髪型を維持'));});
 test('同一視線は一度・異なる視線は両方保持',()=>{const same=compile({gaze:'正面を見る',cameraGaze:'正面を見る'});assert.equal(same.split('正面を見る').length-1,1);const different=compile({gaze:'左を見る',cameraGaze:'右を見る'});assert(different.includes('左を見る'));assert(different.includes('右を見る'));});
-test('同じ文字でも別の人物特徴を消さない',()=>{const p=compile({hair:'黒',eyes:'黒',outfitColor:'黒'});assert.equal(p.split('「黒」').length-1,3);});
+test('同じ文字でも別の人物特徴を消さない',()=>{const p=compile({hair:'黒',eyes:'黒',outfitColor:'黒'});assert.equal(p.split('黒').length-1,3);});
 test('イラスト/アニメを実写や写真へ勝手に変更しない',()=>{for(const style of ['イラスト','アニメ']){const p=compile({composition:'友達が撮影',style});assert(!p.includes('自然な写真'));assert(!p.includes('フォトリアル'));assert(p.includes('視点'));}});
+test('見出しや仕様書表現を生成しない',()=>{const p=compile({...example,actionExpression:'笑顔',movement:'はしゃいでいる'});assert(!/^(人物|衣装|シーン・場所|表情・動作|構図|カメラ・視点|補足)$/m.test(p));assert(!/とする|を指定する|描く場面は|人物の描写は/.test(p));assert(p.includes('黒のナイトドレスを着て、ナイトパーティでおさけをのんでる'));assert(p.includes('笑顔ではしゃいでいる'));assert(!p.includes('成人女性'));});
+test('全身と友人撮影の既知の意味重複を抑制',()=>{for(const framing of ['全身','全身構図','頭から足元まで画面に入る全身構図','全身（頭から足元まで画面に入れる）']){const p=compile({composition:'全身、友達が撮影',framing,photographer:'友人が撮影'});assert.equal(p.split('全身構図').length-1,1);assert.equal(p.split('友人が撮影').length-1,1);}});
+test('自由入力同士の意味を推測して削除しない',()=>{const p=compile({composition:'足元まで見える姿',framing:'全身',photographer:'親しい友達が右から撮影'});for(const text of ['足元まで見える姿','全身構図','親しい友達が右から撮影'])assert(p.includes(text));});
+test('多数の旧人物詳細を統合後も欠落させない',()=>{const old={description:'成人女性',age:'28歳',face:'卵型',hairStyle:'ロング',hairColor:'茶色',eyes:'緑の目',skin:'毛穴感',makeup:'薄化粧',bodyType:'健康的',height:'165cm',physicalFeatures:'左頬のほくろ',features:'眼鏡',fixedFeatures:'顔立ちを固定',maintainedFeatures:'髪色を維持',characterNotes:'左右差を残す'};const p=run(`buildPrompt(migrateDraft(${JSON.stringify(old)},3))`);for(const value of Object.values(old))assert(p.includes(value),value);});
+test('V2.3形式の読み込みで入力と生成が変質しない',()=>{const data={...example,hair:'ロング、茶色',requiredFeatures:'顔を変えない',negative:'低画質'};const raw=JSON.stringify(data);const p=run(`buildPrompt(migrateDraft(${raw},4))`);assert.equal(p,compile(data));assert.equal(JSON.stringify(data),raw);});
 console.log(`${count} compiler checks passed.`);
 console.log('\nExample output:\n'+compile(example));

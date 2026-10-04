@@ -177,87 +177,91 @@ function fillForm(draft) {
   renderPrompt();
 }
 function sentence(text) { return /[。！？.!?]$/.test(text) ? text : `${text}。`; }
-// コンパイラは意味を推測せず、入力を役割ごとに文章・段落へ整理します。
-// 自由文はそのまま引用。補助表現は完全一致する短い撮影用語に限定します。
-function compileCameraPhrase(value, role) {
-  if (role === "framing" && ["全身", "全身構図"].includes(value)) return `${value}（頭から足元まで画面に入れる）`;
-  if (role === "photographer" && ["友達が撮影", "友人が撮影"].includes(value)) return `${value}したような視点`;
-  if (role === "photographer" && value === "自撮り") return "自撮り（本人が自分を撮影する視点）";
-  return value;
+// 既知の補助表現だけを意味キーへ対応させます。自由文の類似推測はしません。
+function cameraMeaning(value, role) {
+  const fullBody = ["全身", "全身構図", "頭から足元まで画面に入る全身構図", "全身（頭から足元まで画面に入れる）", "全身構図（頭から足元まで画面に入れる）"];
+  const friend = ["友達が撮影", "友人が撮影", "友達が撮影したような視点", "友人が撮影したような視点", "友人が撮影したような自然な視点"];
+  const selfie = ["自撮り", "本人が自分を撮影する自撮りの視点", "自撮り（本人が自分を撮影する視点）"];
+  if(role === "framing" && fullBody.includes(value)) return "full-body";
+  if(role === "photographer" && friend.includes(value)) return "friend-photo";
+  if(role === "photographer" && selfie.includes(value)) return "selfie";
+  return "";
 }
-function compileComposition(value) {
-  // 認識できない語や否定指定は変更せず、句の順序も保持します。
-  return value.split(/([\n、,])/).map(part => {
-    const text = part.trim();
-    if (["全身", "全身構図"].includes(text)) return compileCameraPhrase(text,"framing");
-    if (["友達が撮影", "友人が撮影", "自撮り"].includes(text)) return compileCameraPhrase(text,"photographer");
-    return part;
-  }).join("");
+function compileCameraPhrase(value, role) {
+  const meaning = cameraMeaning(value,role);
+  return {"full-body":"頭から足元まで画面に入る全身構図", "friend-photo":"友人が撮影したような自然な視点", "selfie":"本人が自分を撮影する自撮りの視点"}[meaning] || value;
 }
 function uniqueInstructions(value) {
-  // 維持指示の完全一致する行だけ整理。言い換え・類似判定はしません。
   return [...new Set(value.split("\n").map(line => line.trim()).filter(Boolean))].join("\n");
 }
 function buildPrompt(draft) {
   const d = Object.fromEntries(Object.entries(draft).map(([key,value]) => [key,value.trim()]));
   const management = new Set(Object.values(SCHEMA).map(schema => schema.name));
   const meaningful = FIELD_KEYS.filter(key => !management.has(key) && !["negative","ratio","style","expression"].includes(key));
-  if (!meaningful.some(key => d[key])) return "";
+  if(!meaningful.some(key => d[key])) return "";
 
-  const style = { "実写・フォトリアル":"実写・フォトリアルな画像", "スマートフォン写真風":"スマートフォンで撮影した写真のような画像", "イラスト":"イラスト", "アニメ":"アニメ風の画像" };
-  const orientation = { "9:16":"縦長", "4:5":"縦長", "1:1":"正方形", "3:4":"縦長", "16:9":"横長" };
-  const paragraphs = [`${d.ratio}の${orientation[d.ratio]}、${style[d.style]}を作成する。`];
-  const sections = [];
-  // 引用することで「～しない」等の自由文も、語尾や意味を変えずに保持。
-  const quote = value => `「${value}」`;
-  const phrases = fields => fields.filter(([key]) => d[key]).map(([key,label]) => `${label}は${quote(d[key])}`);
-  const describe = fields => {
-    const parts = phrases(fields);
-    return parts.length ? `${parts.join("、")}とする。` : "";
+  const style = {"実写・フォトリアル":"実写・フォトリアルな画像", "スマートフォン写真風":"スマートフォンで撮影した写真のような画像", "イラスト":"イラスト", "アニメ":"アニメ風の画像"};
+  const orientation = {"9:16":"縦長", "4:5":"縦長", "1:1":"正方形", "3:4":"縦長", "16:9":"横長"};
+  const paragraphs = [`${d.ratio}の${orientation[d.ratio]}、${style[d.style]}。`];
+  const addParagraph = parts => { const text=parts.filter(Boolean).join(" "); if(text) paragraphs.push(text); };
+  // 値の中の句読点・否定・数値は保持し、入力の外側だけに接続表現を付けます。
+  const directFields = fields => fields.filter(([key]) => d[key]).map(([key,label]) => sentence(`${label}は${d[key]}`));
+
+  const person=[];
+  if(d.age) person.push(sentence(`年齢・年代は${d.age}`));
+  if(d.description) person.push(sentence(/^[^。！？\n]{1,80}雰囲気$/.test(d.description) ? `${d.description}の人物` : d.description));
+  addParagraph(person);
+  const appearance=directFields([["face","顔立ち"],["hair","髪"],["eyes","目"],["skinMakeup","肌・メイク"],["physique","体型・身長"],["physicalFeatures","身体的特徴"]]);
+  if(d.requiredFeatures) appearance.push(`人物の一貫性を保つ。${sentence(uniqueInstructions(d.requiredFeatures))}`);
+  addParagraph(appearance);
+
+  const description=[];
+  // 短い衣服名だけを「着ている」へ接続。否定・指示文・複雑な自由文はそのまま。
+  const garment=/^[^。！？\n]{1,80}(?:ドレス|シャツ|ローブ|コート|スーツ|ワンピース|ジャケット|着物|制服|服)$/;
+  const wearable=garment.test(d.outfit) && !/(?:ない|禁止|避け|以外|除く|せず)/.test(d.outfit);
+  const sceneClause=/[^。！？\n](?:ている|でいる|んでいる|てる|でる|する|いる|歩く|話す|飲む|楽しむ)$/.test(d.situation);
+  if(wearable && sceneClause) description.push(sentence(`${d.outfit}を着て、${d.situation}`));
+  else {
+    if(d.outfit) description.push(sentence(wearable ? `${d.outfit}を着ている` : `衣装は${d.outfit}`));
+    if(d.situation) description.push(sentence(d.situation));
+  }
+  description.push(...directFields([["outfitType","衣装の種類"],["outfitColor","衣装の色"],["outfitMaterial","素材"],["outfitDesign","デザイン"],["shoes","靴"],["accessories","アクセサリー"]]));
+  description.push(...directFields([["location","場所"],["timeOfDay","時間帯"],["sceneActivity","場面内の行動"],["people","周囲の人物"],["atmosphere","雰囲気"],["props","小物"],["background","背景"]]));
+  const expressions=["笑顔","自然な笑顔","穏やかな笑顔","真剣な表情","無表情"];
+  const movementClause=/^[^。！？\n]{1,80}(?:ている|でいる|んでいる|てる|でる|歩く|話す|飲む)$/.test(d.movement);
+  if(expressions.includes(d.actionExpression) && movementClause) description.push(sentence(`${d.actionExpression}で${d.movement}`));
+  else description.push(...directFields([["actionExpression","表情"],["movement","身体の動作"]]));
+  description.push(...directFields([["gaze","視線"],["mouth","口元"],["hands","手の動き"],["interaction","人物同士のやり取り"]]));
+  addParagraph(description);
+
+  // 構図欄と専用欄をまたぐ、コンパイラ由来の既知の意味重複を一度に整理。
+  const camera=[]; const known=new Set();
+  const addCamera=(value,role,prefix="") => {
+    if(!value) return;
+    const meaning=cameraMeaning(value,role);
+    if(meaning && known.has(meaning)) return;
+    if(meaning) known.add(meaning);
+    camera.push(sentence(meaning ? compileCameraPhrase(value,role) : `${prefix}${value}`));
   };
-  const section = (title, content) => { if(content) sections.push(`${title}\n${content}`); };
+  const compositionParts=d.composition.split(/[\n、,]/).map(part=>part.trim()).filter(Boolean);
+  const unrecognized=[];
+  for(const part of compositionParts) {
+    const role=cameraMeaning(part,"framing") ? "framing" : cameraMeaning(part,"photographer") ? "photographer" : "";
+    if(role) addCamera(part,role); else unrecognized.push(part);
+  }
+  if(unrecognized.length) camera.push(sentence(unrecognized.join("、")));
+  // 自由入力同士は、全文が同じ場合以外に削除しません。
+  if(d.framing !== d.composition) addCamera(d.framing,"framing","撮影範囲は");
+  camera.push(...directFields([["pose","ポーズ"],["cameraDirection","カメラ方向"],["cameraHeight","カメラの高さ"],["distance","被写体との距離"],["angle","アングル"]]));
+  if(d.cameraGaze && d.cameraGaze!==d.gaze) camera.push(sentence(`構図での視線は${d.cameraGaze}`));
+  addCamera(d.photographer,"photographer","撮影者は");
+  camera.push(...directFields([["cameraFeel","撮影機材感"],["lens","レンズ感"]]));
+  addParagraph(camera);
 
-  section("人物",describe([["age","年齢・年代"],["description","人物の描写"]]));
-  const appearance = describe([["face","顔立ち"],["hair","髪"],["eyes","目"],["skinMakeup","肌・メイク"],["physique","体型・身長"],["physicalFeatures","身体的特徴"]]);
-  const consistency = d.requiredFeatures ? `人物の一貫性を保つため、次の指定を必ず維持する：\n${uniqueInstructions(d.requiredFeatures)}` : "";
-  section("外見・一貫性",[appearance,consistency].filter(Boolean).join("\n"));
-
-  const clothing = [];
-  if(d.outfit) clothing.push(`衣装として${quote(d.outfit)}を指定する。`);
-  const clothingDetails = describe([["outfitType","種類"],["outfitColor","衣装の色"],["outfitMaterial","素材"],["outfitDesign","デザイン"],["shoes","靴"],["accessories","アクセサリー"]]);
-  if(clothingDetails) clothing.push(clothingDetails);
-  section("衣装",clothing.join(" "));
-
-  const scene = [];
-  if(d.situation) scene.push(`描く場面は${quote(d.situation)}。`);
-  const sceneDetails = describe([["location","場所"],["timeOfDay","時間帯"],["sceneActivity","場面内の行動"],["people","周囲の人物"],["atmosphere","雰囲気"],["props","小物"],["background","背景"]]);
-  if(sceneDetails) scene.push(sceneDetails);
-  section("シーン・場所",scene.join(" "));
-
-  section("表情・動作",describe([["actionExpression","表情"],["gaze","視線"],["mouth","口元"],["movement","身体の動作"],["hands","手の動き"],["interaction","人物同士のやり取り"]]));
-  const composition = [];
-  if(d.composition) composition.push(`構図は${quote(compileComposition(d.composition))}とする。`);
-  if(d.framing && d.framing !== d.composition) composition.push(`撮影範囲は${quote(compileCameraPhrase(d.framing,"framing"))}。`);
-  if(d.pose) composition.push(`ポーズは${quote(d.pose)}。`);
-  section("構図",composition.join(" "));
-
-  const camera = [];
-  const cameraFields = [["cameraDirection","カメラ方向"],["cameraHeight","カメラの高さ"],["distance","被写体との距離"],["angle","アングル"]];
-  // 同一の視線は一度だけ。異なる指定は両方残し、自動的にどちらかを捨てません。
-  if(d.cameraGaze && d.cameraGaze !== d.gaze) cameraFields.push(["cameraGaze","構図での視線"]);
-  const cameraDetails = describe(cameraFields);
-  if(cameraDetails) camera.push(cameraDetails);
-  if(d.photographer) camera.push(`撮影者・視点は${quote(compileCameraPhrase(d.photographer,"photographer"))}。`);
-  const equipment = describe([["cameraFeel","撮影機材感"],["lens","レンズ感"]]);
-  if(equipment) camera.push(equipment);
-  section("カメラ・視点",camera.join(" "));
-
-  const finishFields = [["sceneLight","場面の照明"],["finishLight","仕上がりの光"],["finishCamera","仕上がりの撮影機材感"],["tone","色調"],["depth","被写界深度"],["bokeh","背景ボケ"],["texture","画質・質感"]];
-  // 役割が対応する照明・機材指定のみ、完全一致の二重出力を整理します。
-  const finish = finishFields.filter(([key]) => !(key === "finishLight" && d[key] === d.sceneLight) && !(key === "finishCamera" && d[key] === d.cameraFeel));
-  section("光・質感・仕上がり",describe(finish));
-  section("補足",describe([["characterNotes","人物の補足"],["outfitOther","衣装の補足"],["sceneOther","シーンの補足"],["actionOther","表情・動作の補足"],["compositionOther","構図の補足"],["finishOther","仕上がりの補足"]]));
-  paragraphs.push(...sections);
+  const finishFields=[["sceneLight","場面の照明"],["finishLight","仕上がりの光"],["finishCamera","仕上がりの撮影機材感"],["tone","色調"],["depth","被写界深度"],["bokeh","背景ボケ"],["texture","画質・質感"]];
+  const finish=finishFields.filter(([key])=> !(key==="finishLight" && d[key]===d.sceneLight) && !(key==="finishCamera" && d[key]===d.cameraFeel));
+  addParagraph(directFields(finish));
+  addParagraph(["characterNotes","outfitOther","sceneOther","actionOther","compositionOther","finishOther"].filter(key=>d[key]).map(key=>sentence(d[key])));
   return paragraphs.join("\n\n");
 }
 
