@@ -161,7 +161,7 @@ function previousFixture(){
   check('破損元データもバックアップに保持',()=>assert.equal(JSON.parse(broken.run('makeBackup()')).recoveryData.current,'{bad'));
   assert(broken.run(`importBackup(${JSON.stringify(raw)})`));check('確認済みJSONで保存停止状態から復旧',()=>assert.equal(broken.data().version,4));
   const empty=boot();await empty.input('characterName','管理名だけ');await empty.input('negative','避けたい');
-  check('管理名/ネガティブのみでは通常文生成しない',()=>{assert.equal(empty.run('currentPrompt'),'');assert(empty.$('#copy-button').disabled);assert(!empty.$('#copy-negative').disabled);});
+  check('管理名/ネガティブは形式のみの通常文へ混入しない',()=>{const p=empty.run('currentPrompt');assert(p.startsWith('9:16'));assert(!p.includes('管理名だけ'));assert(!p.includes('避けたい'));assert(!empty.$('#copy-button').disabled);assert(!empty.$('#copy-negative').disabled);});
   await empty.input('outfit','コート');check('空欄除外・未入力情報を追加しない',()=>{const p=empty.run('currentPrompt');assert(!p.includes('表情'));assert(!p.includes('肌'));assert(!p.includes('自然な'));assert(!p.includes('undefined'));assert(p.includes('コート'));});
   check('作成フォームの重複結果ボタンを削除',()=>assert(!walk(empty.$('#prompt-form')).some(n=>n.tagName==='BUTTON'&&n.textContent==='プロンプトを見る')));
   await empty.$('#prompt-form').emit('submit');check('フォーム送信で結果へ移動しない',()=>assert(!empty.$('#result').scrolled));

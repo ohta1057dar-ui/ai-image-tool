@@ -15,11 +15,11 @@ const compile = fields => run(`buildPrompt(cleanDraft(${JSON.stringify(fields)})
 let count=0;
 const test=(name,fn)=>{fn();console.log('PASS '+name);count++;};
 const example={description:'明るい雰囲気',outfit:'黒のナイトドレス',situation:'ナイトパーティでおさけをのんでる',composition:'全身\n友達が撮影',ratio:'9:16',style:'実写・フォトリアル'};
-test('A 人物＋衣装＋シーン＋構図＋仕上がり',()=>{const p=compile(example);for(const text of Object.values(example))if(!text.includes('\n'))assert(p.includes(text));assert(p.includes('頭から足元まで'));assert(p.includes('友人が撮影したような自然な視点'));assert(!p.includes('ネックレス'));assert(!p.includes('ハイヒール'));});
+test('A 人物＋衣装＋シーン＋構図＋仕上がり',()=>{const p=compile(example);for(const text of Object.values(example))if(!text.includes('\n'))assert(p.includes(text.replace('おさけをのんでる','お酒を飲んでいる')));assert(p.includes('頭から足元まで'));assert(p.includes('友人が撮影したような自然な視点'));assert(!p.includes('ネックレス'));assert(!p.includes('ハイヒール'));});
 test('B 人物だけ・未入力カテゴリを生成しない',()=>{const p=compile({description:'成人の人物'});assert(p.includes('成人の人物'));for(const text of ['衣装\n','シーン・場所\n','構図\n','肌・メイク','光・質感・仕上がり\n'])assert(!p.includes(text));});
 test('C 衣装だけ・人物特徴を創作しない',()=>{const p=compile({outfit:'黒のナイトドレス'});assert(p.includes('黒のナイトドレス'));assert(!p.includes('人物\n'));assert(!p.includes('女性'));assert(!p.includes('靴'));});
 test('D 構図だけ・全身/自撮りの限定的な補助',()=>{const p=compile({composition:'全身、自撮り'});assert(p.includes('頭から足元まで'));assert(p.includes('本人が自分を撮影する自撮りの視点'));assert(!p.includes('腕を'));assert(!p.includes('ローアングル'));});
-test('E 空欄・管理情報・ネガティブだけなら通常文は空',()=>{assert.equal(compile({}),'');assert.equal(compile({description:'  \n',characterName:'管理名',negative:'避けたい内容'}),'');});
+test('E 空欄は補わず選択済みの比率・形式だけ生成',()=>{const baseline=compile({});assert(baseline.startsWith('9:16'));assert(!baseline.includes('人物'));assert.equal(compile({description:'  \n',characterName:'管理名',negative:'避けたい内容'}),baseline);});
 test('F 全項目の情報を保持し10段階の順序を守る',()=>{
   const keys=run('FIELD_KEYS');const names=run('Object.values(SCHEMA).map(s=>s.name)');
   const data={};for(const key of keys)data[key]=`内容_${key}`;
@@ -43,7 +43,7 @@ test('同一の維持指示だけ重複整理・異なる指示は保持',()=>{c
 test('同一視線は一度・異なる視線は両方保持',()=>{const same=compile({gaze:'正面を見る',cameraGaze:'正面を見る'});assert.equal(same.split('正面を見る').length-1,1);const different=compile({gaze:'左を見る',cameraGaze:'右を見る'});assert(different.includes('左を見る'));assert(different.includes('右を見る'));});
 test('同じ文字でも別の人物特徴を消さない',()=>{const p=compile({hair:'黒',eyes:'黒',outfitColor:'黒'});assert.equal(p.split('黒').length-1,3);});
 test('イラスト/アニメを実写や写真へ勝手に変更しない',()=>{for(const style of ['イラスト','アニメ']){const p=compile({composition:'友達が撮影',style});assert(!p.includes('自然な写真'));assert(!p.includes('フォトリアル'));assert(p.includes('視点'));}});
-test('見出しや仕様書表現を生成しない',()=>{const p=compile({...example,actionExpression:'笑顔',movement:'はしゃいでいる'});assert(!/^(人物|衣装|シーン・場所|表情・動作|構図|カメラ・視点|補足)$/m.test(p));assert(!/とする|を指定する|描く場面は|人物の描写は/.test(p));assert(p.includes('黒のナイトドレスを着て、ナイトパーティでおさけをのんでる'));assert(p.includes('笑顔ではしゃいでいる'));assert(!p.includes('成人女性'));});
+test('見出しや仕様書表現を生成しない',()=>{const p=compile({...example,actionExpression:'笑顔',movement:'はしゃいでいる'});assert(!/^(人物|衣装|シーン・場所|表情・動作|構図|カメラ・視点|補足)$/m.test(p));assert(!/とする|を指定する|描く場面は|人物の描写は/.test(p));assert(p.includes('黒のナイトドレスを着て、ナイトパーティでお酒を飲んでいる'));assert(p.includes('笑顔ではしゃいでいる'));assert(!p.includes('成人女性'));});
 test('全身と友人撮影の既知の意味重複を抑制',()=>{for(const framing of ['全身','全身構図','頭から足元まで画面に入る全身構図','全身（頭から足元まで画面に入れる）']){const p=compile({composition:'全身、友達が撮影',framing,photographer:'友人が撮影'});assert.equal(p.split('全身構図').length-1,1);assert.equal(p.split('友人が撮影').length-1,1);}});
 test('自由入力同士の意味を推測して削除しない',()=>{const p=compile({composition:'足元まで見える姿',framing:'全身',photographer:'親しい友達が右から撮影'});for(const text of ['足元まで見える姿','全身構図','親しい友達が右から撮影'])assert(p.includes(text));});
 test('多数の旧人物詳細を統合後も欠落させない',()=>{const old={description:'成人女性',age:'28歳',face:'卵型',hairStyle:'ロング',hairColor:'茶色',eyes:'緑の目',skin:'毛穴感',makeup:'薄化粧',bodyType:'健康的',height:'165cm',physicalFeatures:'左頬のほくろ',features:'眼鏡',fixedFeatures:'顔立ちを固定',maintainedFeatures:'髪色を維持',characterNotes:'左右差を残す'};const p=run(`buildPrompt(migrateDraft(${JSON.stringify(old)},3))`);for(const value of Object.values(old))assert(p.includes(value),value);});

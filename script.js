@@ -183,22 +183,43 @@ function cameraMeaning(value, role) {
   const friend = ["友達が撮影", "友人が撮影", "友達が撮影したような視点", "友人が撮影したような視点", "友人が撮影したような自然な視点"];
   const selfie = ["自撮り", "本人が自分を撮影する自撮りの視点", "自撮り（本人が自分を撮影する視点）"];
   if(role === "framing" && fullBody.includes(value)) return "full-body";
+  if(role === "framing" && ["顔アップ", "顔のアップ", "顔を中心にした近距離構図"].includes(value)) return "face-closeup";
+  if(role === "framing" && ["バストアップ", "頭部から胸元付近までを中心にした構図"].includes(value)) return "bust-up";
   if(role === "photographer" && friend.includes(value)) return "friend-photo";
   if(role === "photographer" && selfie.includes(value)) return "selfie";
   return "";
 }
 function compileCameraPhrase(value, role) {
   const meaning = cameraMeaning(value,role);
-  return {"full-body":"頭から足元まで画面に入る全身構図", "friend-photo":"友人が撮影したような自然な視点", "selfie":"本人が自分を撮影する自撮りの視点"}[meaning] || value;
+  return {"full-body":"頭から足元まで画面に入る全身構図", "face-closeup":"顔を中心にした近距離構図", "bust-up":"頭部から胸元付近までを中心にした構図", "friend-photo":"友人が撮影したような自然な視点", "selfie":"本人が自分を撮影する自撮りの視点"}[meaning] || value;
 }
 function uniqueInstructions(value) {
   return [...new Set(value.split("\n").map(line => line.trim()).filter(Boolean))].join("\n");
 }
+// 補強は限定した条件だけで判断。管理情報・ネガティブは判断材料にも使いません。
+function compilerContext(d) {
+  const names = new Set(Object.values(SCHEMA).map(schema => schema.name));
+  const text = FIELD_KEYS.filter(key => !names.has(key) && !["negative", "expression", "ratio", "style"].includes(key)).map(key => d[key]).join("\n");
+  const notes = ["characterNotes", "outfitOther", "sceneOther", "actionOther", "compositionOther", "finishOther", "requiredFeatures"].some(key => d[key]);
+  const photographic = ["実写・フォトリアル", "スマートフォン写真風"].includes(d.style);
+  // 自由文の否定・指定を勝手に解釈せず、該当語があれば補強を控えます。
+  const alternateCapture = /鏡|三脚|セルフタイマー|タイマー撮影|リモート|ドローン/.test(text);
+  const staged = /作り込|作りこ|演出|ポーズ|スタジオ|記念写真|スナップ|カメラを意識/.test(text) || !!d.pose;
+  const cameraSpecified = notes || alternateCapture || /距離|望遠|広角|魚眼|接写|一眼|フィルム|スマートフォン|スマホ|カメラ位置/.test(text) || !![d.distance, d.cameraDirection, d.cameraHeight, d.angle, d.cameraFeel, d.finishCamera, d.lens].some(Boolean);
+  const night = ["夜", "夜間", "深夜"].includes(d.timeOfDay) || (/ナイトパーティ/.test(d.situation) && !/ない|なく|禁止|避け|以外|除く/.test(d.situation));
+  const lightSpecified = /夜(?:では|じゃ)?(?:ない|なく)|ナイトパーティ(?:では|じゃ)?(?:ない|なく)/.test(text) || notes || !!d.sceneLight || !!d.finishLight || /照明|光|昼|日中|明るい時間|ネオン|街灯|ライト|夕方|朝/.test(text);
+  const textureSpecified = notes || !!d.texture || /質感|CG|加工|絵画|非現実|イラスト|アニメ|現実的|写真のよう/.test(text);
+  return {photographic, cameraSpecified, staged, night, lightSpecified, textureSpecified};
+}
+function normalizeScene(value) {
+  // 明確な短い表現だけを表記整理。長文・否定や引用を含む自由文は保持。
+  return /^ナイトパーティでおさけをのんでる[。]?$/.test(value) ? value.replace("おさけをのんでる", "お酒を飲んでいる") : value;
+}
 function buildPrompt(draft) {
   const d = Object.fromEntries(Object.entries(draft).map(([key,value]) => [key,value.trim()]));
-  const management = new Set(Object.values(SCHEMA).map(schema => schema.name));
-  const meaningful = FIELD_KEYS.filter(key => !management.has(key) && !["negative","ratio","style","expression"].includes(key));
-  if(!meaningful.some(key => d[key])) return "";
+
+  // 表現形式だけでも画像全体と質感を生成。既定の選択も通常の指定として扱います。
+  const context = compilerContext(d);
 
   const style = {"実写・フォトリアル":"実写・フォトリアルな画像", "スマートフォン写真風":"スマートフォンで撮影した写真のような画像", "イラスト":"イラスト", "アニメ":"アニメ風の画像"};
   const orientation = {"9:16":"縦長", "4:5":"縦長", "1:1":"正方形", "3:4":"縦長", "16:9":"横長"};
@@ -216,14 +237,15 @@ function buildPrompt(draft) {
   addParagraph(appearance);
 
   const description=[];
+  const scene = normalizeScene(d.situation);
   // 短い衣服名だけを「着ている」へ接続。否定・指示文・複雑な自由文はそのまま。
   const garment=/^[^。！？\n]{1,80}(?:ドレス|シャツ|ローブ|コート|スーツ|ワンピース|ジャケット|着物|制服|服)$/;
   const wearable=garment.test(d.outfit) && !/(?:ない|禁止|避け|以外|除く|せず)/.test(d.outfit);
-  const sceneClause=/[^。！？\n](?:ている|でいる|んでいる|てる|でる|する|いる|歩く|話す|飲む|楽しむ)$/.test(d.situation);
-  if(wearable && sceneClause) description.push(sentence(`${d.outfit}を着て、${d.situation}`));
+  const sceneClause=/[^。！？\n](?:ている|でいる|んでいる|てる|でる|する|いる|歩く|話す|飲む|楽しむ)$/.test(scene);
+  if(wearable && sceneClause) description.push(sentence(`${d.outfit}を着て、${scene}`));
   else {
     if(d.outfit) description.push(sentence(wearable ? `${d.outfit}を着ている` : `衣装は${d.outfit}`));
-    if(d.situation) description.push(sentence(d.situation));
+    if(d.situation) description.push(sentence(scene));
   }
   description.push(...directFields([["outfitType","衣装の種類"],["outfitColor","衣装の色"],["outfitMaterial","素材"],["outfitDesign","デザイン"],["shoes","靴"],["accessories","アクセサリー"]]));
   description.push(...directFields([["location","場所"],["timeOfDay","時間帯"],["sceneActivity","場面内の行動"],["people","周囲の人物"],["atmosphere","雰囲気"],["props","小物"],["background","背景"]]));
@@ -241,7 +263,10 @@ function buildPrompt(draft) {
     const meaning=cameraMeaning(value,role);
     if(meaning && known.has(meaning)) return;
     if(meaning) known.add(meaning);
-    camera.push(sentence(meaning ? compileCameraPhrase(value,role) : `${prefix}${value}`));
+    let phrase = meaning ? compileCameraPhrase(value,role) : `${prefix}${value}`;
+    if(meaning === "friend-photo" && context.photographic && !context.staged && !context.cameraSpecified) phrase += "。何気ないスナップ写真のような仕上がり";
+    if(meaning === "selfie" && !context.cameraSpecified) phrase += "。自撮りらしいカメラとの距離感";
+    camera.push(sentence(phrase));
   };
   const compositionParts=d.composition.split(/[\n、,]/).map(part=>part.trim()).filter(Boolean);
   const unrecognized=[];
@@ -260,7 +285,10 @@ function buildPrompt(draft) {
 
   const finishFields=[["sceneLight","場面の照明"],["finishLight","仕上がりの光"],["finishCamera","仕上がりの撮影機材感"],["tone","色調"],["depth","被写界深度"],["bokeh","背景ボケ"],["texture","画質・質感"]];
   const finish=finishFields.filter(([key])=> !(key==="finishLight" && d[key]===d.sceneLight) && !(key==="finishCamera" && d[key]===d.cameraFeel));
-  addParagraph(directFields(finish));
+  const finishText = directFields(finish);
+  if(context.night && !context.lightSpecified) finishText.push("夜の環境に合う自然な環境光。");
+  if(context.photographic && !context.textureSpecified) finishText.push("現実的な質感で、実際に撮影した写真のような仕上がり。");
+  addParagraph(finishText);
   addParagraph(["characterNotes","outfitOther","sceneOther","actionOther","compositionOther","finishOther"].filter(key=>d[key]).map(key=>sentence(d[key])));
   return paragraphs.join("\n\n");
 }
