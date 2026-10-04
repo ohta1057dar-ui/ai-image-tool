@@ -223,13 +223,15 @@ function simpleDetail(value) {
   return value.length <= 160 && !/[。！？.!?\n「」]|ない|なく|禁止|避け|以外|除く|維持|固定|してください|とする/.test(value);
 }
 function compilePerson(d) {
-  const sentences=[]; const seen=new Set();
+  let sentences=[]; const groups=[]; const seen=new Set();
+  const finishGroup=()=>{if(sentences.length) groups.push(sentences.join(" ")); sentences=[];};
   const add=value=>{if(value) { const text=sentence(value); if(!seen.has(text)) { seen.add(text); sentences.push(text); } }};
   const ageNoun=/^(?:\d+(?:〜\d+)?歳|\d+代)$/.test(d.age);
   const ageAlreadyDescribed=ageNoun && d.description.startsWith(`${d.age}の`) && !/ない|なく|禁止|避け|以外|除く/.test(d.description);
   if(d.age && !ageAlreadyDescribed) add(ageNoun ? `${d.age}の人物` : `年齢・年代は${d.age}`);
   if(d.description) add(/^[^。！？\n]{1,80}雰囲気$/.test(d.description) ? `${d.description}の人物` : d.description);
 
+  finishGroup();
   const faceNoun=simpleDetail(d.face) && /(?:輪郭|顔立ち|顔|目元)$/.test(d.face);
   const eyeNoun=simpleDetail(d.eyes) && /(?:目|瞳|目元)$/.test(d.eyes);
   if(d.face && d.eyes && faceNoun && eyeNoun) add(d.face === d.eyes ? d.face : `${d.face}で、${d.eyes}`);
@@ -237,6 +239,7 @@ function compilePerson(d) {
     if(d.face) add(faceNoun ? d.face : `顔立ちは${d.face}`);
     if(d.eyes) add(eyeNoun ? d.eyes : `目は${d.eyes}`);
   }
+  finishGroup();
   // 旧髪型＋髪色の改行結合も、現行の一体化した自由入力も受け付けます。
   const hair=detailParts(d.hair, /[\n、]/);
   const color=/^(?:暗めの|明るめの|淡い|濃い)?(?:ブラウン|茶色|黒|黒髪|金色|金髪|白|白髪|赤|赤髪|銀色|シルバー|ベージュアッシュ|ブロンド)$/;
@@ -246,10 +249,12 @@ function compilePerson(d) {
     else add(`髪は${hair.join("、")}`);
   } else if(d.hair) add(hair.every(simpleDetail) && hair.length>1 ? `髪は${hair.join("、")}` : `髪は${d.hair}`);
 
+  finishGroup();
   const skin=detailParts(d.skinMakeup, /[\n、]/);
   if(skin.length===2 && skin.every(simpleDetail) && /肌$/.test(skin[0]) && /メイク|化粧$/.test(skin[1])) add(`${skin[0]}に${skin[1]}`);
   else if(d.skinMakeup) add(skin.every(simpleDetail) && skin.length>1 ? `肌・メイクは${skin.join("、")}` : `肌・メイクは${d.skinMakeup}`);
 
+  finishGroup();
   const physique=detailParts(d.physique, /[\n、]/);
   const height=physique.find(part=>/^\d+(?:\.\d+)?\s*(?:cm|センチ|センチメートル)$/.test(part));
   const body=height && physique.length===2 ? physique.find(part=>part!==height) : d.physique;
@@ -260,13 +265,23 @@ function compilePerson(d) {
     if(bodyText) add(bodyNoun || height ? bodyText : `体型・身長は${bodyText}`);
     if(d.physicalFeatures) add(`身体的特徴は${d.physicalFeatures}`);
   }
-  const consistency=detailParts(d.requiredFeatures).map(part=>{
-    // 維持欄の属性名リストのみ指示文化。ユーザー自身の指示文には追加しません。
-    return /^(?:顔立ち|顔|髪型|髪色|髪|目|肌|肌質|体型)(?:[、・](?:顔立ち|顔|髪型|髪色|髪|目|肌|肌質|体型))*$/.test(part) ? `${part}の特徴を維持する` : part;
-  });
-  if(consistency.length) add(consistency.map(part=>sentence(part)).join(" "));
+  finishGroup();
+  const fixedList=/^(?:顔立ち|顔|髪型|髪色|髪|目|肌|肌質|体型)(?:[、・](?:顔立ち|顔|髪型|髪色|髪|目|肌|肌質|体型))*$/;
+  const instructions=detailParts(d.requiredFeatures);
+  const isInstruction=part=>/維持|固定|保持|保つ|残す|ない|なく|禁止|避け|せず|してください|する[。]?$/.test(part);
+  // 固定欄の意味を必ず残す。既存の指示や否定を別の指示に変換しません。
+  const consistency=instructions.map(part=>fixedList.test(part) ? `${part}の特徴を維持する` : !isInstruction(part) ? (simpleDetail(part) ? `${part}を維持する` : `維持する特徴は${part}`) : part);
+  if(instructions.length===2 && fixedList.test(instructions[0])) {
+    const strong=instructions[1].match(/^(.+)の一貫性を強く維持[。]?$/);
+    const names=instructions[0].split(/[、・]/);
+    const targets=strong ? strong[1].split(/[と・、]/) : [];
+    if(targets.length && targets.every(name=>names.includes(name))) {
+      add(`${instructions[0]}の特徴を維持し、特に${instructions[1]}`);
+    } else consistency.forEach(add);
+  } else consistency.forEach(add);
   if(d.characterNotes) add(d.characterNotes);
-  return sentences.join(" ");
+  finishGroup();
+  return groups.join("\n\n");
 }
 function buildPrompt(draft) {
   const d = Object.fromEntries(Object.entries(draft).map(([key,value]) => [key,value.trim()]));
