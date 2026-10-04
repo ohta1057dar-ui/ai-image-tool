@@ -215,6 +215,59 @@ function normalizeScene(value) {
   // 明確な短い表現だけを表記整理。長文・否定や引用を含む自由文は保持。
   return /^ナイトパーティでおさけをのんでる[。]?$/.test(value) ? value.replace("おさけをのんでる", "お酒を飲んでいる") : value;
 }
+// 短い名詞句だけを接続します。否定・指示・長文は文意を推測せず保持します。
+function detailParts(value, separator = /\n/) {
+  return [...new Set(value.split(separator).map(part => part.trim()).filter(Boolean))];
+}
+function simpleDetail(value) {
+  return value.length <= 160 && !/[。！？.!?\n「」]|ない|なく|禁止|避け|以外|除く|維持|固定|してください|とする/.test(value);
+}
+function compilePerson(d) {
+  const sentences=[]; const seen=new Set();
+  const add=value=>{if(value) { const text=sentence(value); if(!seen.has(text)) { seen.add(text); sentences.push(text); } }};
+  const ageNoun=/^(?:\d+(?:〜\d+)?歳|\d+代)$/.test(d.age);
+  const ageAlreadyDescribed=ageNoun && d.description.startsWith(`${d.age}の`) && !/ない|なく|禁止|避け|以外|除く/.test(d.description);
+  if(d.age && !ageAlreadyDescribed) add(ageNoun ? `${d.age}の人物` : `年齢・年代は${d.age}`);
+  if(d.description) add(/^[^。！？\n]{1,80}雰囲気$/.test(d.description) ? `${d.description}の人物` : d.description);
+
+  const faceNoun=simpleDetail(d.face) && /(?:輪郭|顔立ち|顔|目元)$/.test(d.face);
+  const eyeNoun=simpleDetail(d.eyes) && /(?:目|瞳|目元)$/.test(d.eyes);
+  if(d.face && d.eyes && faceNoun && eyeNoun) add(d.face === d.eyes ? d.face : `${d.face}で、${d.eyes}`);
+  else {
+    if(d.face) add(faceNoun ? d.face : `顔立ちは${d.face}`);
+    if(d.eyes) add(eyeNoun ? d.eyes : `目は${d.eyes}`);
+  }
+  // 旧髪型＋髪色の改行結合も、現行の一体化した自由入力も受け付けます。
+  const hair=detailParts(d.hair, /[\n、]/);
+  const color=/^(?:暗めの|明るめの|淡い|濃い)?(?:ブラウン|茶色|黒|黒髪|金色|金髪|白|白髪|赤|赤髪|銀色|シルバー|ベージュアッシュ|ブロンド)$/;
+  if(hair.length===2 && hair.every(simpleDetail) && hair.some(part=>color.test(part))) {
+    const hue=hair.find(part=>color.test(part));const shape=hair.find(part=>part!==hue);
+    if(shape && /(?:ヘア|髪|ロング|ショート|ウェーブ|ボブ)$/.test(shape)) add(`${hue}の${shape}${/^(?:ロング|ショート)$/.test(shape) ? "ヘア" : ""}`);
+    else add(`髪は${hair.join("、")}`);
+  } else if(d.hair) add(hair.every(simpleDetail) && hair.length>1 ? `髪は${hair.join("、")}` : `髪は${d.hair}`);
+
+  const skin=detailParts(d.skinMakeup, /[\n、]/);
+  if(skin.length===2 && skin.every(simpleDetail) && /肌$/.test(skin[0]) && /メイク|化粧$/.test(skin[1])) add(`${skin[0]}に${skin[1]}`);
+  else if(d.skinMakeup) add(skin.every(simpleDetail) && skin.length>1 ? `肌・メイクは${skin.join("、")}` : `肌・メイクは${d.skinMakeup}`);
+
+  const physique=detailParts(d.physique, /[\n、]/);
+  const height=physique.find(part=>/^\d+(?:\.\d+)?\s*(?:cm|センチ|センチメートル)$/.test(part));
+  const body=height && physique.length===2 ? physique.find(part=>part!==height) : d.physique;
+  const bodyText=height && physique.length<=2 ? `身長${height}${body && body!==height ? `、${body}` : ""}` : body;
+  const bodyNoun=body && simpleDetail(body) && /(?:体型|体格|細身|筋肉質)$/.test(body);
+  if(bodyText && d.physicalFeatures && bodyNoun && simpleDetail(d.physicalFeatures)) add(bodyText === d.physicalFeatures ? bodyText : `${bodyText}で、${d.physicalFeatures}`);
+  else {
+    if(bodyText) add(bodyNoun || height ? bodyText : `体型・身長は${bodyText}`);
+    if(d.physicalFeatures) add(`身体的特徴は${d.physicalFeatures}`);
+  }
+  const consistency=detailParts(d.requiredFeatures).map(part=>{
+    // 維持欄の属性名リストのみ指示文化。ユーザー自身の指示文には追加しません。
+    return /^(?:顔立ち|顔|髪型|髪色|髪|目|肌|肌質|体型)(?:[、・](?:顔立ち|顔|髪型|髪色|髪|目|肌|肌質|体型))*$/.test(part) ? `${part}の特徴を維持する` : part;
+  });
+  if(consistency.length) add(consistency.map(part=>sentence(part)).join(" "));
+  if(d.characterNotes) add(d.characterNotes);
+  return sentences.join(" ");
+}
 function buildPrompt(draft) {
   const d = Object.fromEntries(Object.entries(draft).map(([key,value]) => [key,value.trim()]));
 
@@ -228,13 +281,7 @@ function buildPrompt(draft) {
   // 値の中の句読点・否定・数値は保持し、入力の外側だけに接続表現を付けます。
   const directFields = fields => fields.filter(([key]) => d[key]).map(([key,label]) => sentence(`${label}は${d[key]}`));
 
-  const person=[];
-  if(d.age) person.push(sentence(`年齢・年代は${d.age}`));
-  if(d.description) person.push(sentence(/^[^。！？\n]{1,80}雰囲気$/.test(d.description) ? `${d.description}の人物` : d.description));
-  addParagraph(person);
-  const appearance=directFields([["face","顔立ち"],["hair","髪"],["eyes","目"],["skinMakeup","肌・メイク"],["physique","体型・身長"],["physicalFeatures","身体的特徴"]]);
-  if(d.requiredFeatures) appearance.push(`人物の一貫性を保つ。${sentence(uniqueInstructions(d.requiredFeatures))}`);
-  addParagraph(appearance);
+  addParagraph([compilePerson(d)]);
 
   const description=[];
   const scene = normalizeScene(d.situation);
@@ -287,9 +334,9 @@ function buildPrompt(draft) {
   const finish=finishFields.filter(([key])=> !(key==="finishLight" && d[key]===d.sceneLight) && !(key==="finishCamera" && d[key]===d.cameraFeel));
   const finishText = directFields(finish);
   if(context.night && !context.lightSpecified) finishText.push("夜の環境に合う自然な環境光。");
-  if(context.photographic && !context.textureSpecified) finishText.push("現実的な質感で、実際に撮影した写真のような仕上がり。");
+  if(context.photographic && !context.textureSpecified) finishText.push("現実的な質感を保った仕上がり。");
   addParagraph(finishText);
-  addParagraph(["characterNotes","outfitOther","sceneOther","actionOther","compositionOther","finishOther"].filter(key=>d[key]).map(key=>sentence(d[key])));
+  addParagraph(["outfitOther","sceneOther","actionOther","compositionOther","finishOther"].filter(key=>d[key]).map(key=>sentence(d[key])));
   return paragraphs.join("\n\n");
 }
 
