@@ -1,0 +1,36 @@
+// 実アプリを既存DOM/localStorage模擬環境で実行。依存追加なし。
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const helper=fs.readFileSync(path.join(__dirname,'v2-1.test.cjs'),'utf8');
+const {boot,walk}=new Function('require','__dirname',helper.slice(0,helper.indexOf('(async()=>'))+'\nreturn {boot,walk};')(require,__dirname);
+const person={characterName:'いつもの人物',age:'24歳',description:'明るく親しみやすい雰囲気。大人っぽさもある',face:'やや丸みのある卵型の輪郭、柔らかな顔立ち',eyes:'やや大きめのアーモンド型の目',hair:'胸元までのゆるいウェーブのロングヘア、暗めのブラウン',skinMakeup:'自然な肌の質感。毛穴感を適度に残し、過度な美肌加工をしない。ナチュラルメイク',physique:'健康的で自然な成人女性の体型、165cm',physicalFeatures:'すらっとした手足',requiredFeatures:'顔立ち、髪型、髪色',characterNotes:'顔立ちと髪型の一貫性を強く維持'};
+const labels={description:'雰囲気・人物像',face:'顔立ち',eyes:'目',hair:'髪',skinMakeup:'肌・メイク',physique:'体型・身長',physicalFeatures:'その他の身体的特徴',requiredFeatures:'必ず維持する特徴',characterNotes:'補足・一貫性指示'};
+let count=0;const check=(name,fn)=>{fn();count++;console.log('PASS '+name);};
+const group=(root,title)=>walk(root).find(node=>node.tagName==='DETAILS'&&node.children[0]?.textContent===title);
+const same=(draft,expected)=>{for(const [key,value] of Object.entries(expected))assert.equal(draft[key],value,key);};
+(async()=>{
+const app=boot();const card=app.$('#card-character');
+check('作成UI：基本は常時表示・外見は初期展開・一貫性は初期折りたたみ',()=>{assert(walk(card).some(n=>n.tagName==='H3'&&n.textContent==='基本情報'));assert(group(card,'外見').open);assert(!group(card,'一貫性').open);assert(!walk(card).some(n=>n.textContent==='外見・一貫性の詳細'));for(const key of ['face','eyes','hair','skinMakeup','physique','physicalFeatures'])assert(walk(group(card,'外見')).includes(app.$('#'+key)));for(const key of ['requiredFeatures','characterNotes'])assert(walk(group(card,'一貫性')).includes(app.$('#'+key)));});
+check('表示ラベル・入力例・内部name/idは独立',()=>{for(const [key,label] of Object.entries(labels)){assert(walk(card).some(n=>n.tagName==='LABEL'&&n.htmlFor===key&&n.textContent===label));assert.equal(app.$('#'+key).name,key);assert(app.$('#'+key).placeholder.startsWith('例：'));}assert.equal(app.run('DATA_VERSION'),4);});
+check('雰囲気欄から外見への案内・支援技術への関連付け',()=>{assert.equal(app.$('#person-description-hint').textContent,'顔・髪・体型などの外見は下の『外見』へ入力');assert.equal(app.$('#description').attrs['aria-describedby'],'person-description-hint');});
+for(const [key,value] of Object.entries(person))await app.input(key,value);
+app.run('openSave("character")');app.$('#preset-name').value=person.characterName;await app.$('#save-form').emit('submit');const id=app.data().presets.character[0].id;
+check('指定人物をフォーム→新規保存で全欄独立保持',()=>{same(app.data().draft,person);same(app.data().presets.character[0].data,person);});
+await app.input('description','作成途中の別の説明');app.run(`applyPreset('character',${JSON.stringify(id)})`);
+check('保存設定の読み込みは各キーに戻す',()=>{same(app.data().draft,person);same(app.data().presets.character[0].data,person);for(const [key,value] of Object.entries(person))assert.equal(app.$('#'+key).value,value);});
+check('完成プロンプト：人物6意味グループを維持',()=>{const text=app.run('compilePerson(readDraft())');const groups=text.split('\n\n');assert.equal(groups.length,6);for(const [i,word] of [[0,'24歳'],[1,'アーモンド'],[2,'ブラウン'],[3,'毛穴感'],[4,'165cm'],[5,'特徴を維持']])assert(groups[i].includes(word));assert(app.run('currentPrompt').includes(text));});
+app.run(`openEdit('character',${JSON.stringify(id)})`);const edit=app.$('#edit-fields');
+check('人物編集も同じ3グループ・初期展開状態・内部キー',()=>{assert(walk(edit).some(n=>n.textContent==='基本情報'));assert(group(edit,'外見').open);assert(!group(edit,'一貫性').open);for(const key of Object.keys(person)){assert.equal(app.$('#edit-'+key).name,key);assert.equal(app.$('#edit-'+key).value,person[key]);}for(const [key,label] of Object.entries(labels))assert(walk(edit).some(n=>n.tagName==='LABEL'&&n.htmlFor==='edit-'+key&&n.textContent===label));assert.equal(app.$('#edit-description').attrs['aria-describedby'],'edit-person-description-hint');});
+await app.$('#edit-form').emit('submit');
+check('編集フォームsubmitで全欄独立保持・ID維持',()=>{same(app.data().presets.character[0].data,person);assert.equal(app.data().presets.character[0].id,id);});
+const changed={...person,description:'落ち着いて親しみやすい雰囲気',face:'自然な左右差のある顔立ち',eyes:'丸みのある目',hair:'肩までの黒髪',skinMakeup:'自然な肌、薄いメイク',physique:'健康的な体型、166cm',physicalFeatures:'手の小さなほくろ',requiredFeatures:'顔立ち、髪型',characterNotes:'顔立ちと髪型の一貫性を維持'};
+app.run(`openEdit('character',${JSON.stringify(id)})`);for(const [key,value] of Object.entries(changed))app.$('#edit-'+key).value=value;await app.$('#edit-form').emit('submit');
+check('各編集欄が保存へ接続・作成中の入力は無変更',()=>{same(app.data().presets.character[0].data,changed);same(app.data().draft,person);});
+app.run(`applyPreset('character',${JSON.stringify(id)})`);const reopened=boot(app.storage);
+check('編集保存→読み込み→ページ再読み込みでも全欄保持',()=>{same(reopened.data().draft,changed);same(reopened.data().presets.character[0].data,changed);});
+const backup=reopened.run('makeBackup()');const imported=boot();assert(imported.run(`importBackup(${JSON.stringify(backup)})`));
+check('JSON復元でも全欄独立・version4を維持',()=>{same(imported.data().draft,changed);same(imported.data().presets.character[0].data,changed);assert.equal(imported.data().version,4);});
+const old=boot();const aggregated=Object.values(person).slice(1).join('\n');await old.input('description',aggregated);old.run('openSave("character")');old.$('#preset-name').value='旧集約人物';await old.$('#save-form').emit('submit');const raw=old.run('makeBackup()');const restored=boot();assert(restored.run(`importBackup(${JSON.stringify(raw)})`));
+check('過去description集約データを自動分割せず保持',()=>{assert.equal(restored.data().draft.description,aggregated);assert.equal(restored.data().presets.character[0].data.description,aggregated);for(const key of ['face','hair','eyes','skinMakeup','physique','physicalFeatures','requiredFeatures','characterNotes'])assert.equal(restored.data().draft[key],'');});
+check('他カテゴリの詳細折りたたみを維持',()=>{for(const category of ['outfit','situation','action','composition','finish'])assert(!group(app.$('#card-'+category),'詳細設定').open);});
+console.log(`${count} V2.5 UI checks passed (DOM/localStorage mocks).`);
+})().catch(error=>{console.error(error);process.exitCode=1;});

@@ -9,7 +9,7 @@ const RATIOS = ["9:16", "4:5", "1:1", "3:4", "16:9"];
 const STYLES = ["実写・フォトリアル", "スマートフォン写真風", "イラスト", "アニメ"];
 const SCHEMA = {
   character: { label: "人物", name: "characterName", basic: ["characterName", "age", "description"], fields: {
-    characterName: "管理用キャラクター名", age: "年齢／年代", description: "人物説明", face: "顔立ち", hair: "髪", eyes: "目", skinMakeup: "肌・メイク", physique: "体型・身長", physicalFeatures: "身体的特徴", requiredFeatures: "必ず維持する特徴", characterNotes: "補足" } },
+    characterName: "管理用キャラクター名", age: "年齢／年代", description: "雰囲気・人物像", face: "顔立ち", hair: "髪", eyes: "目", skinMakeup: "肌・メイク", physique: "体型・身長", physicalFeatures: "その他の身体的特徴", requiredFeatures: "必ず維持する特徴", characterNotes: "補足・一貫性指示" } },
   outfit: { label: "衣装", name: "outfitName", basic: ["outfitName", "outfit"], fields: {
     outfitName: "管理用衣装名", outfit: "衣装説明", outfitType: "種類", outfitColor: "色", outfitMaterial: "素材", outfitDesign: "デザイン", shoes: "靴", accessories: "アクセサリー", outfitOther: "その他" } },
   situation: { label: "シーン", name: "sceneName", basic: ["sceneName", "situation"], fields: {
@@ -24,11 +24,12 @@ const SCHEMA = {
 const FIELD_KEYS = [...Object.values(SCHEMA).flatMap(s => Object.keys(s.fields)), "negative", "expression"];
 const DEFAULT_DRAFT = Object.fromEntries(FIELD_KEYS.map(k => [k, k === "ratio" ? "9:16" : k === "style" ? STYLES[0] : ""]));
 const PLACEHOLDERS = {
-  characterName: "例：いつもの人物A（管理用）", age: "例：20代の成人", description: "例：落ち着いた雰囲気の成人女性",
-  face: "例：卵型の顔、自然な左右差、柔らかい目元", hair: "例：ベージュアッシュのロングヘア、ゆるいウェーブ",
-  eyes: "例：アーモンド形の目、ダークブラウン", skinMakeup: "例：自然な毛穴感とツヤ、ナチュラルメイク",
-  physique: "例：165cm、自然で健康的な体型", physicalFeatures: "例：左頬の小さなほくろ（必要な場合のみ）",
-  requiredFeatures: "例：顔立ち・髪・年齢感を維持。顔を過度に左右対称にしない", characterNotes: "例：丸い眼鏡を使用。装飾は控えめ",
+  characterName: "例：いつもの人物A（管理用）", age: "例：24歳", description: "例：明るく親しみやすい雰囲気。大人っぽさもある",
+  face: "例：やや丸みのある卵型の輪郭、柔らかな顔立ち", eyes: "例：やや大きめのアーモンド型の目",
+  hair: "例：胸元までのゆるいウェーブのロングヘア、暗めのブラウン",
+  skinMakeup: "例：自然な肌の質感。毛穴感を適度に残し、過度な美肌加工をしない。ナチュラルメイク",
+  physique: "例：健康的で自然な成人女性の体型、165cm", physicalFeatures: "例：すらっとした手足",
+  requiredFeatures: "例：顔立ち、髪型、髪色", characterNotes: "例：顔立ちと髪型の一貫性を強く維持",
   outfitName: "例：黒のナイトドレス", outfit: "例：シンプルな黒いロングドレス", outfitType: "例：ナイトドレス", outfitColor: "例：黒",
   outfitMaterial: "例：シルク", outfitDesign: "例：装飾の少ないデザイン", shoes: "例：黒のパンプス", accessories: "例：小さなイヤリング", outfitOther: "例：自然な生地のしわ",
   sceneName: "例：ホテルパーティ", situation: "例：友人と夜のパーティを楽しんでいる", location: "例：ホテルのラウンジ", timeOfDay: "例：夜",
@@ -373,9 +374,28 @@ function createField(key, label, prefix = "") {
 }
 function appendCategoryFields(container, category, prefix = "") {
   const schema = SCHEMA[category];
+  if (category === "character") {
+    const basic=element("section","person-group");
+    basic.append(element("h3","person-group-title","基本情報"));
+    for(const key of schema.basic) basic.append(createField(key,schema.fields[key],prefix));
+    const hint=element("p","hint","顔・髪・体型などの外見は下の『外見』へ入力");
+    hint.id=`${prefix}person-description-hint`;
+    basic.children[basic.children.length-1].children[1].setAttribute("aria-describedby",hint.id);
+    basic.append(hint);container.append(basic);
+    for(const [title,keys,open] of [
+      ["外見",["face","eyes","hair","skinMakeup","physique","physicalFeatures"],true],
+      ["一貫性",["requiredFeatures","characterNotes"],false]
+    ]) {
+      const group=element("details","field-details person-group");group.open=open;
+      group.append(element("summary","",title));
+      for(const key of keys) group.append(createField(key,schema.fields[key],prefix));
+      container.append(group);
+    }
+    return;
+  }
   for (const key of schema.basic) container.append(createField(key, schema.fields[key], prefix));
   const details = element("details", "field-details");
-  details.append(element("summary", "", category === "character" ? "外見・一貫性の詳細" : "詳細設定"));
+  details.append(element("summary", "", "詳細設定"));
   for (const [key,label] of Object.entries(schema.fields)) if (!schema.basic.includes(key)) details.append(createField(key,label,prefix));
   container.append(details);
 }

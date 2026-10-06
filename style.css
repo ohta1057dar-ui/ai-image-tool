@@ -102,3 +102,9 @@ input, textarea, select { scroll-margin-bottom: calc(var(--bottom-space) + 16px)
 .keyboard-open .result-shortcuts { height: auto; }
 .keyboard-open .bottom-nav { height: auto; }
 .keyboard-open .status { bottom: 12px; }
+
+/* 人物の入力先を3グループで示し、外見は初めから展開します。 */
+.person-group { margin: 10px 0; min-width: 0; }
+.person-group-title { margin: 0 0 10px; font-size: 17px; color: #51317f; }
+.person-group > summary { font-size: 17px; color: #51317f; }
+.person-group .hint { margin-top: 0; }
