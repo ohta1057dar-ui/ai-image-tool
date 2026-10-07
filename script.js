@@ -272,7 +272,14 @@ function compilePerson(d) {
   const isInstruction=part=>/維持|固定|保持|保つ|残す|ない|なく|禁止|避け|せず|してください|する[。]?$/.test(part);
   // 固定欄の意味を必ず残す。既存の指示や否定を別の指示に変換しません。
   const consistency=instructions.map(part=>fixedList.test(part) ? `${part}の特徴を維持する` : !isInstruction(part) ? (simpleDetail(part) ? `${part}を維持する` : `維持する特徴は${part}`) : part);
-  if(instructions.length===2 && fixedList.test(instructions[0])) {
+  const noteDirective=d.characterNotes.match(/^(.+)の一貫性を強く(?:維持|保つ)[。]?$/);
+  const fixedNames=instructions.length===1 && fixedList.test(instructions[0]) ? instructions[0].split(/[、・]/) : [];
+  const noteTargets=noteDirective ? noteDirective[1].split(/[と・、]/) : [];
+  const mergeNote=fixedNames.length>0 && noteTargets.length>0 && noteTargets.every(name=>fixedNames.includes(name));
+  // 別欄も既知の対象と強い維持指示が一致する場合だけ統合。固定対象を全て残します。
+  if(mergeNote) {
+    add(`${[...new Set(fixedNames)].join("・")}の特徴を維持し、特に${noteDirective[1]}の一貫性を強く保つ`);
+  } else if(instructions.length===2 && fixedList.test(instructions[0])) {
     const strong=instructions[1].match(/^(.+)の一貫性を強く維持[。]?$/);
     const names=instructions[0].split(/[、・]/);
     const targets=strong ? strong[1].split(/[と・、]/) : [];
@@ -280,7 +287,7 @@ function compilePerson(d) {
       add(`${instructions[0]}の特徴を維持し、特に${instructions[1]}`);
     } else consistency.forEach(add);
   } else consistency.forEach(add);
-  if(d.characterNotes) add(d.characterNotes);
+  if(d.characterNotes && !mergeNote) add(d.characterNotes);
   finishGroup();
   return groups.join("\n\n");
 }

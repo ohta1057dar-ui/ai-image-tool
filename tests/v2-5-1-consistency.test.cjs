@@ -1,0 +1,22 @@
+// 一貫性グループだけの回帰テスト。保存形式は変えず、実コンパイラで検証。
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const source=fs.readFileSync(path.join(__dirname,'../script.js'),'utf8');const context=vm.createContext({});
+vm.runInContext([source.slice(0,source.indexOf('const $ =')),source.slice(source.indexOf('function isObject('),source.indexOf('function categoryData(')),source.slice(source.indexOf('function sentence('),source.indexOf('function createField('))].join('\n'),context);
+const run=code=>vm.runInContext(code,context);const person=d=>run(`compilePerson(cleanDraft(${JSON.stringify(d)}))`);
+const fixed='顔立ち、髪型、髪色',note='顔立ちと髪型の一貫性を強く維持';
+let count=0;const test=(name,fn)=>{fn();count++;console.log('PASS '+name);};
+test('両欄あり：髪色を欠落させず一文へ自然統合',()=>assert.equal(person({requiredFeatures:fixed,characterNotes:note}),'顔立ち・髪型・髪色の特徴を維持し、特に顔立ちと髪型の一貫性を強く保つ。'));
+test('固定欄のみ：維持する対象を全て出力',()=>assert.equal(person({requiredFeatures:fixed}),'顔立ち、髪型、髪色の特徴を維持する。'));
+test('補足欄のみ：入力をそのまま保持',()=>assert.equal(person({characterNotes:note}),note+'。'));
+test('両欄空：不要な維持指示は生成しない',()=>assert.equal(person({}),''));
+test('異なる対象：目を勝手に重点対象にせず両方保持',()=>{const p=person({requiredFeatures:fixed,characterNotes:'目の一貫性を強く維持'});assert(p.includes(fixed+'の特徴を維持する'));assert(p.includes('目の一貫性を強く維持'));assert(!p.includes('特に'));});
+test('一部だけ異なる対象も無理に統合しない',()=>{const p=person({requiredFeatures:fixed,characterNotes:'顔立ちと目の一貫性を強く維持'});assert(!p.includes('特に'));assert(p.includes('顔立ちと目'));assert(p.includes('髪色'));});
+test('否定指示を肯定や強い維持指示に変更しない',()=>{for(const negative of ['顔立ちと髪型の一貫性を強く維持しない','顔立ちと髪型の一貫性を強く維持しないでください','顔立ちと髪型の一貫性を強く保たない']){const p=person({requiredFeatures:fixed,characterNotes:negative});assert(p.includes(negative));assert(!p.includes('特に'));}});
+test('固定欄の否定も保持・無理に統合しない',()=>{const p=person({requiredFeatures:'髪色を固定しない',characterNotes:note});assert(p.includes('髪色を固定しない'));assert(p.includes(note));assert(!p.includes('特に'));});
+test('曖昧・複数文・引用された指示は無理に統合しない',()=>{for(const text of ['その特徴の一貫性を強く維持','顔立ちを大切にする','顔立ちと髪型の一貫性を強く維持。必要なら変更。','「顔立ちと髪型の一貫性を強く維持」']){const p=person({requiredFeatures:fixed,characterNotes:text});assert(p.includes(text));assert(!p.includes('特に'));}});
+test('単独・中点の対象・句点ありも安全に統合',()=>{for(const text of ['髪型の一貫性を強く維持。','顔立ち・髪型の一貫性を強く保つ']){const p=person({requiredFeatures:fixed,characterNotes:text});assert(p.includes('特に'));assert(p.includes('髪色'));assert.equal(p.split('一貫性').length-1,1);}});
+test('固定欄の複数指示を落とさない',()=>{const p=person({requiredFeatures:fixed+'\n肌の毛穴感を維持',characterNotes:note});for(const text of [fixed,'肌の毛穴感を維持',note])assert(p.includes(text));assert(!p.includes('特に'));});
+test('旧version4 JSON・入力非破壊・決定論',()=>{const data={requiredFeatures:fixed,characterNotes:note,description:'明るい雰囲気'};const json=JSON.stringify(data);const expected=person(data);assert.equal(run(`compilePerson(migrateDraft(JSON.parse(${JSON.stringify(json)}),4))`),expected);assert.equal(JSON.stringify(data),json);for(let i=0;i<10;i++)assert.equal(person(data),expected);assert.equal(run('DATA_VERSION'),4);});
+test('旧version3移行済みの固定/維持指示も保持',()=>{const data={fixedFeatures:fixed,maintainedFeatures:note,characterNotes:'顔の左右差を残す'};const p=run(`compilePerson(migrateDraft(${JSON.stringify(data)},3))`);for(const text of [fixed,note,'顔の左右差を残す'])assert(p.includes(text));});
+test('他の人物グループとネガティブには影響しない',()=>{const d={age:'24歳',description:'明るい雰囲気',face:'卵型の顔',eyes:'丸い目',hair:'茶色のロングヘア',skinMakeup:'自然な肌',physique:'165cm',physicalFeatures:'左頬のほくろ',negative:'文字、透かし'};const a=person(d),b=person({...d,requiredFeatures:fixed,characterNotes:note});assert(b.startsWith(a+'\n\n'));assert(!b.includes(d.negative));});
+console.log(`${count} V2.5.1 consistency checks passed.`);
