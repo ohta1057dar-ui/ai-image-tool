@@ -108,3 +108,10 @@ input, textarea, select { scroll-margin-bottom: calc(var(--bottom-space) + 16px)
 .person-group-title { margin: 0 0 10px; font-size: 17px; color: #51317f; }
 .person-group > summary { font-size: 17px; color: #51317f; }
 .person-group .hint { margin-top: 0; }
+
+.fixed-toggle { display: flex; align-items: center; gap: 10px; min-height: 48px; margin: 12px 0; }
+.fixed-toggle input { width: 24px; min-height: 24px; flex: 0 0 24px; }
+.reference-preview { display: block; width: auto; max-width: 100%; max-height: 180px; border-radius: 10px; margin: 8px auto; object-fit: contain; }
+.fixed-group { min-width: 0; }
+.fixed-group input[type="file"] { max-width: 100%; }
+[hidden] { display: none !important; }

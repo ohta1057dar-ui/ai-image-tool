@@ -4,13 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#6750a4">
-  <title>AIプロンプトメーカー V2.5</title>
+  <title>AIプロンプトメーカー V2.6</title>
   <link rel="stylesheet" href="style.css">
+  <script src="reference-store.js" defer></script>
   <script src="script.js" defer></script>
 </head>
 <body>
 <main class="app">
-  <header class="hero"><p class="eyebrow">IMAGE PROMPT TOOL · V2.5</p><h1>AIプロンプトメーカー</h1><p class="lead">保存した設定を選んで、イメージを言葉に。</p></header>
+  <header class="hero"><p class="eyebrow">IMAGE PROMPT TOOL · V2.6</p><h1>AIプロンプトメーカー</h1><p class="lead">保存した設定を選んで、イメージを言葉に。</p></header>
   <noscript>このツールを使うにはJavaScriptを有効にしてください。</noscript>
   <p id="storage-warning" class="warning" role="alert" hidden></p>
   <p id="status" class="status" role="status" aria-live="polite"></p>
@@ -20,10 +21,10 @@
       <div id="editor-cards"></div>
       <details class="card editor-card"><summary>ネガティブプロンプト<span id="negative-summary" class="card-summary">未入力</span></summary><div class="card-body"><label for="negative">避けたい要素</label><textarea id="negative" name="negative" rows="3" placeholder="例：ぼやけ、文字、透かし"></textarea><p class="hint">対応サービスの専用欄へ貼り付けます。</p></div></details>
     </form>
-    <section id="result" class="card result-card"><h2>完成プロンプト</h2><p class="hint">入力に合わせて自動更新。管理名は出力しません。</p><p id="prompt-output" class="prompt-output"></p><button id="copy-button" type="button" class="primary">通常プロンプトをコピー</button><h3>ネガティブプロンプト</h3><p id="negative-output" class="prompt-output"></p><button id="copy-negative" type="button" class="secondary">ネガティブをコピー</button><button id="save-history" type="button" class="primary">履歴に保存</button></section>
+    <section id="result" class="card result-card"><h2>完成プロンプト</h2><p class="hint">入力に合わせて自動更新。管理名は出力しません。</p><p id="prompt-output" class="prompt-output"></p><button id="copy-button" type="button" class="primary">通常プロンプトをコピー</button><h3>ネガティブプロンプト</h3><p id="negative-output" class="prompt-output"></p><button id="copy-negative" type="button" class="secondary">ネガティブをコピー</button><div id="reference-copy-box" hidden><button id="reference-copy" type="button" class="secondary" disabled>画像を添付して使うプロンプトをコピー</button><details id="reference-copy-fallback" hidden><summary>参照画像用プロンプト（長押しでコピー）</summary><p id="reference-copy-text" class="prompt-output"></p></details><p id="reference-copy-status" class="hint" role="status"></p><p class="hint">基準画像は画像生成サービスへ手動で添付してください。アプリから自動添付・外部送信は行いません。</p></div><button id="save-history" type="button" class="primary">履歴に保存</button></section>
   </section>
   <section id="panel-presets" aria-labelledby="nav-presets" hidden><h2>保存設定</h2><label for="preset-category">カテゴリ</label><select id="preset-category"></select><p class="hint">読み込み後の入力編集は、元の設定を変更しません。</p><div id="preset-list"></div>
-    <details class="card"><summary>バックアップ・復元</summary><p class="hint">全設定・履歴・作成途中の入力をJSONに保存します。復元は現在のV2.2データを置き換えます。</p><button id="export-data" type="button" class="secondary">JSONを書き出す</button><label for="import-data">JSONを読み込む</label><input id="import-data" type="file" accept=".json,application/json"><p class="hint">V2・V2.1の保存データ形式にも対応。復元前にバックアップをおすすめします。</p></details>
+    <details class="card"><summary>バックアップ・復元</summary><p class="hint">全設定・履歴・作成途中の入力をJSONに保存します。復元は現在のV2.6データを置き換えます。このJSONには基準画像本体は含まれません。原本は端末に残してください。</p><button id="export-data" type="button" class="secondary">JSONを書き出す</button><label for="import-data">JSONを読み込む</label><input id="import-data" type="file" accept=".json,application/json"><p class="hint">V2・V2.1の保存データ形式にも対応。復元前にバックアップをおすすめします。</p><button id="cleanup-images" type="button" class="secondary">未使用画像を整理</button><p class="hint">他の設定・入力・履歴で使用中の画像は残ります。登録直後の画像は5分間保護します。</p></details>
   </section>
   <section id="panel-history" aria-labelledby="nav-history" hidden><h2>履歴 <span id="history-count"></span></h2><p class="hint">最新100件。設定を復元して再利用できます。</p><div id="history-list"></div></section>
   <p class="note">画像生成は行いません。保存はこのブラウザ内のみ。大切な設定はJSONでバックアップしてください。</p>

@@ -2,7 +2,8 @@
 
 // 項目の追加はこの定義から。キーは保存データとの互換性のため変更しません。
 const DATA_VERSION = 4; // UI V2.2の保存形式
-const STORAGE_KEY = "ai-prompt-maker-v2-2";
+const STORAGE_KEY = "ai-prompt-maker-v2-6";
+const OLD_CURRENT_KEY = "ai-prompt-maker-v2-2";
 const PREVIOUS_KEY = "ai-prompt-maker-v2-1";
 const LEGACY_KEY = "ai-prompt-maker-v2";
 const RATIOS = ["9:16", "4:5", "1:1", "3:4", "16:9"];
@@ -43,6 +44,13 @@ const PLACEHOLDERS = {
   finishName: "例：スマホ実写", finishCamera: "例：スマートフォン撮影風", finishLight: "例：自然な光", tone: "例：自然な色調", depth: "例：適度な被写界深度",
   texture: "例：過度な美肌加工を避ける", finishOther: "例：自然な粒子感を残す"
 };
+const FIXED_DEFAULTS = {fixedCharacterEnabled:false,referenceImageId:"",referenceFileName:"",referenceMemo:""};
+const FIXED_KEYS = Object.keys(FIXED_DEFAULTS);
+let referenceCleanupRunning=false;
+let pendingUploads=0;
+const imageLeases=new Set();
+const referenceViews={};
+const referenceOperations={"":0,"edit-":0};
 const $ = selector => document.querySelector(selector);
 const form = $("#prompt-form");
 const warning = $("#storage-warning");
@@ -97,16 +105,21 @@ function cleanDraft(value) {
   const oldStyles = { "実写風": STYLES[0], "イラスト風": "イラスト", "アニメ風": "アニメ" };
   result.style = oldStyles[result.style] || result.style;
   if (!RATIOS.includes(result.ratio) || !STYLES.includes(result.style)) throw new Error("比率・表現形式が不正です");
+  for(const key of FIXED_KEYS) {
+    const fallback=FIXED_DEFAULTS[key], entry=value[key] === undefined ? fallback : value[key];
+    if(typeof entry!==typeof fallback || (typeof entry==="string" && entry.length>(key==="referenceMemo" ? 4000 : 512))) throw new Error("固定キャラクター情報が不正です");
+    result[key]=entry;
+  }
   return result;
 }
 function categoryData(category, draft) {
-  const keys = [...Object.keys(SCHEMA[category].fields), ...(category === "character" ? ["expression"] : [])];
+  const keys = [...Object.keys(SCHEMA[category].fields), ...(category === "character" ? ["expression",...FIXED_KEYS] : [])];
   return Object.fromEntries(keys.map(key => [key, draft[key]]));
 }
 function emptyState() {
-  return { version: DATA_VERSION, draft: { ...DEFAULT_DRAFT }, presets: Object.fromEntries(Object.keys(SCHEMA).map(k => [k, []])), history: [], recent: {} };
+  return { version: DATA_VERSION, draft: { ...DEFAULT_DRAFT,...FIXED_DEFAULTS }, presets: Object.fromEntries(Object.keys(SCHEMA).map(k => [k, []])), history: [], recent: {} };
 }
-// V2/V2.1のキーは残し、初回だけV2.2へ移行。完成文章・IDも保持します。
+// 旧データの完成文章・IDを保持して正規化。旧保存領域には書き戻しません。
 function normalizeState(saved) {
   if (!isObject(saved) || ![2, 3, DATA_VERSION].includes(saved.version) || !isObject(saved.presets) || !Array.isArray(saved.history)) throw new Error("未対応の保存形式です");
   const result = emptyState();
@@ -141,13 +154,14 @@ function validDate(value) { return typeof value === "string" && Number.isFinite(
 function loadState() {
   try {
     const current = localStorage.getItem(STORAGE_KEY);
-    const previous = current === null ? localStorage.getItem(PREVIOUS_KEY) : null;
-    const legacy = current === null && previous === null ? localStorage.getItem(LEGACY_KEY) : null;
-    if (current === null && previous === null && legacy === null) return emptyState();
-    const result = normalizeState(JSON.parse(current ?? previous ?? legacy));
-    if (current === null) {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(result)); }
-      catch { showWarning("旧データは読み込めましたが、V2.2の保存に失敗しました。元データは残っています。JSONでバックアップしてください。"); }
+    const oldCurrent=current===null ? localStorage.getItem(OLD_CURRENT_KEY) : null;
+    const previous=current===null && oldCurrent===null ? localStorage.getItem(PREVIOUS_KEY) : null;
+    const legacy=current===null && oldCurrent===null && previous===null ? localStorage.getItem(LEGACY_KEY) : null;
+    if(current===null && oldCurrent===null && previous===null && legacy===null) return emptyState();
+    const result=normalizeState(JSON.parse(current ?? oldCurrent ?? previous ?? legacy));
+    if(current===null) {
+      try {localStorage.setItem(STORAGE_KEY,JSON.stringify(result));}
+      catch {storageBlocked=true;showWarning("V2.6へのコピーに失敗しました。旧データは変更していません。JSONでバックアップしてください。");}
     }
     return result;
   } catch {
@@ -164,6 +178,7 @@ function persist() {
 }
 // 保存設定や履歴への操作は、永続化失敗時に元に戻します。
 function commitChange(change) {
+  if(referenceCleanupRunning) {showStatus("画像を整理中です。少し待ってから操作してください。");return false;}
   const previous = JSON.stringify(state);
   change();
   if (persist()) return true;
@@ -171,8 +186,26 @@ function commitChange(change) {
   showStatus("変更を保存できませんでした");
   return false;
 }
-function readDraft() { return cleanDraft(Object.fromEntries(new FormData(form))); }
+function readFixed(container) {
+  const result={...FIXED_DEFAULTS};
+  for(const key of FIXED_KEYS) {
+    const field=container.elements.namedItem(key);
+    if(field) result[key]=key==="fixedCharacterEnabled" ? Boolean(field.checked) : field.value;
+  }
+  return result;
+}
+function fillFixed(draft,prefix="") {
+  for(const key of FIXED_KEYS) {
+    const field=$(`#${prefix}${key}`);
+    if(key==="fixedCharacterEnabled") field.checked=Boolean(draft[key]);else field.value=draft[key] || "";
+  }
+  referenceOperations[prefix]++;
+  releaseReferenceView(prefix);
+  refreshReference(prefix);
+}
+function readDraft() { return cleanDraft({...Object.fromEntries(new FormData(form)),...readFixed(form)}); }
 function fillForm(draft) {
+  fillFixed(draft);
   for (const key of FIELD_KEYS) form.elements.namedItem(key).value = draft[key];
   for (const category of Object.keys(SCHEMA)) $(`#preset-${category}`).value = "";
   renderPrompt();
@@ -291,8 +324,8 @@ function compilePerson(d) {
   finishGroup();
   return groups.join("\n\n");
 }
-function buildPrompt(draft) {
-  const d = Object.fromEntries(Object.entries(draft).map(([key,value]) => [key,value.trim()]));
+function buildPrompt(draft, options={}) {
+  const d = Object.fromEntries(FIELD_KEYS.map(key => [key,draft[key].trim()]));
 
   // 表現形式だけでも画像全体と質感を生成。既定の選択も通常の指定として扱います。
   const context = compilerContext(d);
@@ -304,7 +337,7 @@ function buildPrompt(draft) {
   // 値の中の句読点・否定・数値は保持し、入力の外側だけに接続表現を付けます。
   const directFields = fields => fields.filter(([key]) => d[key]).map(([key,label]) => sentence(`${label}は${d[key]}`));
 
-  addParagraph([compilePerson(d)]);
+  addParagraph([compilePerson(options.omitConsistency ? {...d,requiredFeatures:"",characterNotes:""} : d)]);
 
   const description=[];
   const scene = normalizeScene(d.situation);
@@ -363,6 +396,146 @@ function buildPrompt(draft) {
   return paragraphs.join("\n\n");
 }
 
+// 通常生成は変更せず、参照用コピーだけに条件付きの指示を追加します。
+function buildReferencePrompt(draft) {
+  if(!draft.fixedCharacterEnabled || !draft.referenceImageId) return "";
+  const consistency=compilePerson({...DEFAULT_DRAFT,requiredFeatures:draft.requiredFeatures,characterNotes:draft.characterNotes});
+  const change=[];
+  const content=keys=>keys.some(key=>draft[key].trim());
+  if(content(Object.keys(SCHEMA.outfit.fields).filter(key=>key!=="outfitName"))) change.push("衣装");
+  if(content(Object.keys(SCHEMA.situation.fields).filter(key=>key!=="sceneName"))) change.push("シーン");
+  if(content(["actionExpression","gaze","mouth"])) change.push("表情・視線");
+  if(content(["movement","hands","interaction","actionOther"])) change.push("動作");
+  if(content(["pose"])) change.push("ポーズ");
+  if(content(["composition","framing","compositionOther"])) change.push("構図");
+  if(content(["cameraDirection","cameraHeight","distance","angle","cameraGaze","photographer","cameraFeel","lens","bokeh"])) change.push("撮影方法");
+  let instruction="参照画像が添付されている場合、その画像の人物を同一性の基準とする。";
+  if(consistency) instruction+=consistency;
+  if(change.length) instruction+=`${change.join("・")}は、維持する特徴に反しない範囲で今回の指定に従う。`;
+  instruction+="参照画像が添付されていない場合、参照画像に基づく人物固定は行わない。";
+  const parts=buildPrompt(draft,{omitConsistency:true}).split("\n\n");parts.splice(1,0,instruction);
+  return parts.join("\n\n");
+}
+function appendFixedControls(container,prefix) {
+  const toggle=element("label","fixed-toggle");
+  const enabled=element("input");enabled.type="checkbox";enabled.name="fixedCharacterEnabled";enabled.id=`${prefix}fixedCharacterEnabled`;
+  toggle.append(enabled,element("span","","固定キャラクターとして使用"));container.append(toggle);
+  const group=element("details","field-details fixed-group");group.id=`${prefix}fixed-group`;group.open=true;group.hidden=true;
+  group.append(element("summary","","キャラクター固定"),element("p","hint","用途：人物の同一性の基準。一貫性の指定は上の「一貫性」欄を使います。"));
+  const id=element("input");id.type="hidden";id.name="referenceImageId";id.id=`${prefix}referenceImageId`;group.append(id);
+  const preview=element("img","reference-preview");preview.id=`${prefix}reference-preview`;preview.alt="人物の同一性の基準画像";preview.hidden=true;group.append(preview);
+  const fileLabel=element("label","","画像登録・差し替え");fileLabel.htmlFor=`${prefix}reference-file`;
+  const file=element("input");file.type="file";file.accept="image/jpeg,image/png,image/webp";file.id=`${prefix}reference-file`;
+  file.addEventListener("change",async()=>{try {if(file.files?.[0]) await registerReference(prefix,file.files[0]);} finally {file.value="";}});
+  const status=element("p","hint");status.id=`${prefix}reference-status`;status.setAttribute("role","status");
+  const nameLabel=element("label","","原本ファイル名");nameLabel.htmlFor=`${prefix}referenceFileName`;
+  const name=element("input");name.type="text";name.readOnly=true;name.name="referenceFileName";name.id=`${prefix}referenceFileName`;
+  const memoLabel=element("label","","基準画像のメモ（任意）");memoLabel.htmlFor=`${prefix}referenceMemo`;
+  const memo=element("textarea");memo.name="referenceMemo";memo.id=`${prefix}referenceMemo`;memo.rows=2;memo.maxLength=4000;memo.placeholder="例：いつも基準にする正面の人物画像";
+  group.append(fileLabel,file,status,action("登録解除",()=>unlinkReference(prefix)),nameLabel,name,memoLabel,memo,element("p","hint","画像は外部送信されません。原本は端末に残し、画像生成サービスへ手動で添付してください。"));
+  container.append(group);
+  enabled.addEventListener("change",()=>{if(!enabled.checked) referenceOperations[prefix]++;refreshReference(prefix);});
+}
+function releaseReferenceView(prefix) {
+  const view=referenceViews[prefix];if(view?.url) URL.revokeObjectURL(view.url);
+  referenceViews[prefix]={generation:(view?.generation || 0)+1,signature:null,id:"",available:false};
+}
+function updateReferenceCopyUI() {
+  const draft=readDraft(), view=referenceViews[""];
+  $("#reference-copy-box").hidden=!draft.fixedCharacterEnabled;
+  $("#reference-copy-fallback").hidden=true;
+  $("#reference-copy").disabled=Boolean(pendingUploads || referenceCleanupRunning || !view?.available || view.id!==draft.referenceImageId);
+  $("#reference-copy-status").textContent= !draft.referenceImageId || (view?.id===draft.referenceImageId && !view.available && !view.loading) ? "基準画像を再登録してください" : view?.loading ? "基準画像を確認しています" : "基準画像は画像生成サービスへ手動で添付してください";
+}
+function refreshReference(prefix="") {
+  const enabled=$(`#${prefix}fixedCharacterEnabled`).checked;
+  const id=$(`#${prefix}referenceImageId`).value;
+  $(`#${prefix}fixed-group`).hidden=!enabled;
+  const signature=JSON.stringify([enabled,id]);const previous=referenceViews[prefix];
+  if(previous?.signature===signature) return previous.promise;
+  releaseReferenceView(prefix);
+  const view=referenceViews[prefix];view.signature=signature;view.id=id;
+  const preview=$(`#${prefix}reference-preview`);preview.hidden=true;preview.removeAttribute("src");
+  const status=$(`#${prefix}reference-status`);
+  if(!enabled || !id) {status.textContent="基準画像を登録してください。原本は端末に残してください。";return Promise.resolve();}
+  view.loading=true;status.textContent="基準画像を確認しています";
+  view.promise=(async()=>{
+    try {
+      if(!globalThis.ReferenceStore) throw new Error("このブラウザでは画像保存を利用できません");
+      const record=await ReferenceStore.get(id);
+      if(referenceViews[prefix]!==view) return;
+      if(record) {view.url=URL.createObjectURL(record.blob);preview.src=view.url;preview.hidden=false;view.available=true;status.textContent=`${record.width}×${record.height} の縮小画像。原本を生成サービスへ手動で添付してください。`;}
+      else status.textContent="基準画像を再登録してください（このブラウザに画像がありません）";
+    } catch(error) {if(referenceViews[prefix]===view) status.textContent=`${error.message}。基準画像を再登録してください。`;}
+    finally {view.loading=false;if(prefix==="" && referenceViews[prefix]===view) updateReferenceCopyUI();}
+  })();
+  return view.promise;
+}
+function usedReferenceIds() {
+  const ids=new Set();const add=draft=>{if(draft?.referenceImageId) ids.add(draft.referenceImageId);};
+  add(state.draft);for(const item of state.presets.character) add(item.data);for(const item of state.history) add(item.draft);
+  if(editing?.category==="character") add(readFixed($("#edit-form")));
+  for(const id of imageLeases) ids.add(id);
+  // 別タブが保存したデータも保護します。読めない場合は整理を中止。
+  const stored=localStorage.getItem(STORAGE_KEY);
+  if(stored) {const latest=JSON.parse(stored);add(latest.draft);for(const item of latest.presets.character) add(item.data);for(const item of latest.history) add(item.draft);}
+  return ids;
+}
+async function cleanupReferences(notify=false) {
+  if(referenceCleanupRunning || pendingUploads || !globalThis.ReferenceStore || storageBlocked) return false;
+  referenceCleanupRunning=true;updateReferenceCopyUI();
+  try {const count=await ReferenceStore.collect(usedReferenceIds);if(notify) showStatus(`未使用画像を${count}枚整理しました。登録直後の画像は5分間保護します。`,5000);return true;}
+  catch(error) {if(notify) showStatus(error.message,5000);return false;}
+  finally {referenceCleanupRunning=false;updateReferenceCopyUI();}
+}
+async function registerReference(prefix,file) {
+  if(referenceCleanupRunning) {showStatus("画像を整理中です。少し待ってください");return;}
+  const token=++referenceOperations[prefix], owner=prefix ? editing?.id : null;
+  const active=()=>referenceOperations[prefix]===token && $(`#${prefix}fixedCharacterEnabled`).checked && (!prefix || (editing?.id===owner && $("#edit-dialog").open));
+  let record;
+  pendingUploads++;updateReferenceCopyUI();
+  try {
+    if(!globalThis.ReferenceStore) throw new Error("このブラウザでは画像保存を利用できません");
+    record=await ReferenceStore.prepare(file);if(!active()) return;
+    imageLeases.add(record.id);await ReferenceStore.put(record);if(!active()) return;
+    const oldId=$(`#${prefix}referenceImageId`).value, oldName=$(`#${prefix}referenceFileName`).value;
+    const fileName=String(file.name || "基準画像").slice(0,512);
+    const next=cleanDraft({...(!prefix ? readDraft() : {...DEFAULT_DRAFT,...readFixed($("#edit-form"))}),referenceImageId:record.id,referenceFileName:fileName});
+    $(`#${prefix}referenceImageId`).value=record.id;$(`#${prefix}referenceFileName`).value=fileName;
+    if(!prefix && !commitChange(()=>{state.draft=next;})) {
+      $("#referenceImageId").value=oldId;$("#referenceFileName").value=oldName;
+      throw new Error("画像の紐付けを保存できませんでした。旧画像を維持しました");
+    }
+    releaseReferenceView(prefix);await refreshReference(prefix);
+    showStatus(prefix ? "縮小画像を登録しました。設定の保存で確定します" : "縮小画像を登録しました。原本は端末に残してください",5000);
+  } catch(error) {showStatus(error.message,5000);}
+  finally {if(record) imageLeases.delete(record.id);pendingUploads--;updateReferenceCopyUI();void cleanupReferences();}
+}
+async function unlinkReference(prefix="") {
+  if(referenceCleanupRunning || pendingUploads) {showStatus("画像の処理が終わるまでお待ちください");return;}
+  const id=$(`#${prefix}referenceImageId`).value;if(!id || !confirm("この人物から基準画像の登録を解除しますか？他の設定で使用中の画像は残ります。")) return;
+  const name=$(`#${prefix}referenceFileName`).value;
+  referenceOperations[prefix]++;$(`#${prefix}referenceImageId`).value="";$(`#${prefix}referenceFileName`).value="";
+  if(!prefix && !commitChange(()=>{state.draft=readDraft();})) {$("#referenceImageId").value=id;$("#referenceFileName").value=name;return;}
+  releaseReferenceView(prefix);await refreshReference(prefix);updateReferenceCopyUI();
+  showStatus(prefix ? "登録解除は設定の保存で確定します" : "基準画像の登録を解除しました");
+  if(!prefix) await cleanupReferences();
+}
+function cancelReferenceEdit() {
+  editing=null;referenceOperations["edit-"]++;releaseReferenceView("edit-");void cleanupReferences();
+}
+async function copyReferencePrompt() {
+  if(pendingUploads || referenceCleanupRunning) {showStatus("画像の処理が終わるまでお待ちください");return;}
+  const draft=readDraft();if(!draft.fixedCharacterEnabled || !draft.referenceImageId) return;
+  try {
+    if(!globalThis.ReferenceStore || !await ReferenceStore.get(draft.referenceImageId)) throw new Error("基準画像を再登録してください");
+    const current=readDraft();
+    if(!current.fixedCharacterEnabled || current.referenceImageId!==draft.referenceImageId) return;
+    const referencePrompt=buildReferencePrompt(current);
+    $("#reference-copy-text").textContent=referencePrompt;
+    await copyText(referencePrompt,$("#reference-copy-fallback"),"参照画像用プロンプトをコピーしました。原本画像を手動で添付してください",()=>{$("#reference-copy-fallback").hidden=false;});
+  } catch(error) {releaseReferenceView("");void refreshReference();showStatus(error.message,5000);}
+}
 function createField(key, label, prefix = "") {
   const wrapper = element("div", "field");
   const labelNode = element("label", "", label);
@@ -398,6 +571,7 @@ function appendCategoryFields(container, category, prefix = "") {
       for(const key of keys) group.append(createField(key,schema.fields[key],prefix));
       container.append(group);
     }
+    appendFixedControls(container,prefix);
     return;
   }
   for (const key of schema.basic) container.append(createField(key, schema.fields[key], prefix));
@@ -447,6 +621,8 @@ function renderPrompt() {
     const value = summaryText(category,draft);
     $(`#summary-${category}`).textContent = hasCategoryContent(category,draft) ? `${value || "設定済み"} ✓` : "未設定";
   }
+  refreshReference();
+  updateReferenceCopyUI();
   $("#negative-summary").textContent = draft.negative.trim() ? "入力済み ✓" : "未入力";
 }
 function updateDraft() {
@@ -480,9 +656,11 @@ function renderQuick() {
   }
 }
 function applyPreset(category,id) {
+  if(referenceCleanupRunning) {showStatus("画像を整理中です");return;}
   const item = state.presets[category].find(p => p.id === id); if (!item) return;
   for (const key of Object.keys(SCHEMA[category].fields)) form.elements.namedItem(key).value = item.data[key];
   if (category === "character") {
+    fillFixed(item.data);
     form.elements.namedItem("expression").value = item.data.expression || "";
     if (!form.elements.namedItem("actionExpression").value.trim() && item.data.expression) form.elements.namedItem("actionExpression").value = item.data.expression;
   }
@@ -509,6 +687,7 @@ function openSave(category) {
   $("#save-dialog").showModal(); $("#preset-name").focus();
 }
 function savePreset(category,name,draft) {
+  if(pendingUploads) {showStatus("画像の保存が終わるまでお待ちください");return false;}
   if (!name.trim() || !hasCategoryContent(category,draft)) return false;
   const now = new Date().toISOString();
   const data = categoryData(category,draft); data[SCHEMA[category].name] = name.trim();
@@ -535,6 +714,7 @@ function deletePreset(category,id) {
   if (!item || !confirm(`「${item.name}」を削除しますか？`)) return;
   if (!commitChange(() => { state.presets[category]=state.presets[category].filter(p => p.id!==id); if(state.recent[category]===id) delete state.recent[category]; })) return;
   renderPresets(); renderQuick(); showStatus("設定を削除しました。作成中の入力は残っています。");
+  void cleanupReferences();
 }
 function openEdit(category,id) {
   const item=findPreset(category,id); if (!item) return;
@@ -545,7 +725,9 @@ function openEdit(category,id) {
   for (const key of Object.keys(SCHEMA[category].fields)) $(`#edit-${key}`).value=item.data[key];
   // 管理名は設定名欄に一本化し、二重入力を避けます。
   $(`#edit-${SCHEMA[category].name}`).parentElement.hidden=true;
-  $("#edit-dialog").showModal(); resizeTextareas($("#edit-form")); $("#edit-name").focus();
+  $("#edit-dialog").showModal();
+  if(category==="character") fillFixed(item.data,"edit-");
+  resizeTextareas($("#edit-form")); $("#edit-name").focus();
 }
 // 長文も手動リサイズなしで読める高さへ。折りたたみ中は展開時に再計算します。
 function resizeTextareas(container) {
@@ -556,6 +738,7 @@ function resizeTextareas(container) {
   }
 }
 function editPreset(category,id,name,data) {
+  if(pendingUploads) {showStatus("画像の保存が終わるまでお待ちください");return false;}
   if (!findPreset(category,id) || !name.trim()) return false;
   const draft=cleanDraft({...data, ...(category === "character" ? {expression: findPreset(category,id).data.expression || ""} : {})});
   if (!hasCategoryContent(category,draft)) { showStatus("設定内容を入力してください"); return false; }
@@ -585,6 +768,7 @@ function saveHistory() {
   renderHistory(); showStatus("履歴に保存しました");
 }
 function restoreHistory(id) {
+  if(referenceCleanupRunning) {showStatus("画像を整理中です");return;}
   const item=state.history.find(h=>h.id===id);
   if(!item || !confirm("現在の入力をこの履歴の設定に置き換えますか？")) return;
   state.draft={...item.draft}; fillForm(state.draft);
@@ -595,6 +779,7 @@ function deleteHistory(id) {
   if(!confirm("この履歴を削除しますか？")) return;
   if(!commitChange(()=>{state.history=state.history.filter(h=>h.id!==id);})) return;
   renderHistory(); showStatus("履歴を削除しました");
+  void cleanupReferences();
 }
 function renderHistory() {
   const list=$("#history-list"); list.replaceChildren(); $("#history-count").textContent=`（${state.history.length}/100）`;
@@ -612,7 +797,7 @@ function renderHistory() {
     row.append(actions); list.append(row);
   }
 }
-async function copyText(text,target,successMessage="コピーしました！") {
+async function copyText(text,target,successMessage="コピーしました！",onFailure) {
   if(!text) return;
   try { await navigator.clipboard.writeText(text); showStatus(successMessage); }
   catch {
@@ -621,6 +806,7 @@ async function copyText(text,target,successMessage="コピーしました！") {
     let copied=false; try {copied=document.execCommand("copy");} catch { /* 長押しへ誘導 */ }
     temporary.remove(); active?.focus?.({preventScroll:true});
     if(copied) {showStatus(successMessage);return;}
+    onFailure?.();
     if(target.tagName==="DETAILS") target.open=true;
     target.scrollIntoView({block:"center"}); showStatus("コピーできませんでした。表示された文章を長押ししてコピーしてください。",5000);
   }
@@ -630,23 +816,24 @@ function makeBackup() {
   const backup={app:"ai-prompt-maker",exportedAt:new Date().toISOString(),...state};
   // 読めない元データも回収し、空の初期状態だけを書き出して失わないようにします。
   if(storageBlocked) {
-    try {backup.recoveryData={current:localStorage.getItem(STORAGE_KEY),previous:localStorage.getItem(PREVIOUS_KEY),legacy:localStorage.getItem(LEGACY_KEY)};}
+    try {backup.recoveryData={current:localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(OLD_CURRENT_KEY),previous:localStorage.getItem(PREVIOUS_KEY),legacy:localStorage.getItem(LEGACY_KEY)};}
     catch {backup.recoveryNote="ブラウザの保存領域を読み取れませんでした";}
   }
   return JSON.stringify(backup,null,2);
 }
 function exportBackup() {
   const blob=new Blob([makeBackup()],{type:"application/json"}); const url=URL.createObjectURL(blob);
-  const link=element("a"); link.href=url; link.download=`ai-prompt-maker-v2-2-${new Date().toISOString().slice(0,10)}.json`;
+  const link=element("a"); link.href=url; link.download=`ai-prompt-maker-v2-6-${new Date().toISOString().slice(0,10)}.json`;
   document.body.append(link); link.click(); link.remove(); setTimeout(()=>URL.revokeObjectURL(url),10000);
-  showStatus("JSONを書き出しました。ダウンロードを確認してください。");
+  showStatus("JSONを書き出しました。このJSONには基準画像本体は含まれません。",5000);
 }
 function importBackup(text) {
+  if(referenceCleanupRunning || pendingUploads) throw new Error("画像の処理が終わってから復元してください");
   const parsed=JSON.parse(text);
   if(parsed.app!==undefined && parsed.app!=="ai-prompt-maker") throw new Error("別のアプリのバックアップです");
   const incoming=normalizeState(parsed);
   const count=Object.values(incoming.presets).reduce((total,items)=>total+items.length,0);
-  if(!confirm(`設定${count}件・履歴${incoming.history.length}件を復元します。現在のV2.2設定・履歴・入力を置き換えますか？`)) return false;
+  if(!confirm(`設定${count}件・履歴${incoming.history.length}件を復元します。現在のV2.6設定・履歴・入力を置き換えますか？画像本体はJSONに含まれません。`)) return false;
   // 読み込み不可状態からの復元も明示的な確認後だけ許可します。
   try {localStorage.setItem(STORAGE_KEY,JSON.stringify(incoming));}
   catch {showWarning("復元を保存できませんでした。現在のデータは変更していません。");return false;}
@@ -664,6 +851,8 @@ $("#copy-button").addEventListener("click",()=>copyText(currentPrompt,$("#prompt
 $("#quick-copy").addEventListener("click",()=>copyText(currentPrompt,$("#prompt-output"),"通常プロンプトをコピーしました"));
 $("#copy-negative").addEventListener("click",()=>copyText(readDraft().negative.trim(),$("#negative-output")));
 $("#save-history").addEventListener("click",saveHistory);
+$("#reference-copy").addEventListener("click",copyReferencePrompt);
+$("#cleanup-images").addEventListener("click",()=>cleanupReferences(true));
 document.querySelectorAll("[data-tab]").forEach(button=>button.addEventListener("click",()=>switchTab(button.dataset.tab)));
 $("#preset-category").addEventListener("change",event=>{selectedCategory=event.target.value;renderPresets();});
 $("#cancel-save").addEventListener("click",()=>$("#save-dialog").close());
@@ -671,14 +860,17 @@ $("#save-form").addEventListener("submit",event=>{
   event.preventDefault(); const name=$("#preset-name").value.trim(); if(!name) return;
   if(!savePreset(saveCategory,name,readDraft())) return;
   form.elements.namedItem(SCHEMA[saveCategory].name).value=name;
+  void cleanupReferences();
   state.draft=readDraft();persist();renderPrompt();renderQuick();renderPresets();$("#save-dialog").close();showStatus("設定を保存しました");
 });
-$("#cancel-edit").addEventListener("click",()=>$("#edit-dialog").close());
+$("#cancel-edit").addEventListener("click",()=>{cancelReferenceEdit();$("#edit-dialog").close();});
+$("#edit-dialog").addEventListener("cancel",cancelReferenceEdit);
+$("#edit-dialog").addEventListener("close",()=>{if(editing) cancelReferenceEdit();});
 $("#edit-form").addEventListener("submit",event=>{
   event.preventDefault(); if(!editing) return;
-  const data=Object.fromEntries(new FormData($("#edit-form")));const name=$("#edit-name").value.trim();
+  const data={...Object.fromEntries(new FormData($("#edit-form"))),...readFixed($("#edit-form"))};const name=$("#edit-name").value.trim();
   if(!editPreset(editing.category,editing.id,name,data)) return;
-  renderQuick();renderPresets();$("#edit-dialog").close();editing=null;showStatus("保存設定を更新しました。作成中の入力は変更していません。");
+  renderQuick();renderPresets();editing=null;$("#edit-dialog").close();releaseReferenceView("edit-");void cleanupReferences();showStatus("保存設定を更新しました。作成中の入力は変更していません。");
 });
 $("#export-data").addEventListener("click",exportBackup);
 $("#import-data").addEventListener("change",async event=>{
